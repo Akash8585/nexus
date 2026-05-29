@@ -1,0 +1,62 @@
+---
+title: Authentication
+description: Signup, login, logout, and JWT session endpoints.
+---
+
+Base URL: `http://localhost:8000/api/v1`
+
+## POST `/auth/signup`
+
+Create an account. The **first user** on a Nexus instance becomes **admin**.
+
+**Auth:** None (public)
+
+```json
+{
+  "name": "Admin User",
+  "email": "admin@example.com",
+  "password": "securepassword"
+}
+```
+
+**Response:** `200` — JWT `access_token` and user object.
+
+## POST `/auth/login`
+
+Log in and receive a JWT.
+
+**Auth:** None (public)
+
+```json
+{
+  "email": "admin@example.com",
+  "password": "securepassword"
+}
+```
+
+**Response:** `200`
+
+```json
+{
+  "access_token": "eyJ...",
+  "token_type": "bearer",
+  "user": { "id": "...", "email": "...", "role": "admin" }
+}
+```
+
+## POST `/auth/logout`
+
+Invalidate the current session token.
+
+**Auth:** Bearer JWT
+
+**Response:** `200`
+
+## Authentication headers
+
+| Client | Header |
+| --- | --- |
+| Dashboard / humans | `Authorization: Bearer <jwt>` |
+| Agents / SDK | `Authorization: Bearer <api_key>` |
+
+API keys start with `nxs_live_sk_`. Generate them under **Settings → API Keys**.

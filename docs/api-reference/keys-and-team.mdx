@@ -1,0 +1,71 @@
+---
+title: API Keys & Team
+description: Manage API keys and team members.
+---
+
+## API Keys
+
+Base URL: `http://localhost:8000/api/v1/keys`
+
+### GET `/keys`
+
+List all API keys (hashed — plain key not returned).
+
+**Auth:** Admin JWT
+
+### POST `/keys`
+
+Generate a new API key.
+
+**Auth:** Admin JWT
+
+```json
+{ "name": "demo-pipeline" }
+```
+
+**Response:** `200` — Includes `key` field **once** (`nxs_live_sk_...`).
+
+### DELETE `/keys/{id}`
+
+Revoke an API key.
+
+**Auth:** Admin JWT
+
+---
+
+## Team
+
+Base URL: `http://localhost:8000/api/v1/team`
+
+### GET `/team`
+
+List team members.
+
+**Auth:** Admin JWT
+
+### POST `/team/invite`
+
+Invite a user by email.
+
+**Auth:** Admin JWT
+
+```json
+{
+  "email": "viewer@example.com",
+  "role": "viewer"
+}
+```
+
+`role` is `admin` or `viewer`.
+
+### PATCH `/team/{id}/role`
+
+Change a member's role.
+
+**Auth:** Admin JWT
+
+### DELETE `/team/{id}`
+
+Remove a team member.
+
+**Auth:** Admin JWT

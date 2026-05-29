@@ -1,0 +1,51 @@
+---
+title: Topics
+description: List, create, and delete Kafka topics.
+---
+
+Base URL: `http://localhost:8000/api/v1/topics`
+
+## GET `/topics`
+
+List all Kafka topics with metadata.
+
+**Auth:** JWT
+
+**Response:** `200`
+
+```json
+[
+  {
+    "name": "nexus.research",
+    "partition_count": 1,
+    "message_count": 42,
+    "size_bytes": 12840
+  }
+]
+```
+
+`message_count` and `size_bytes` reflect messages currently stored in Redis.
+
+## POST `/topics`
+
+Create a custom topic.
+
+**Auth:** Admin JWT
+
+```json
+{
+  "name": "nexus.custom",
+  "partitions": 1,
+  "retention_days": 7
+}
+```
+
+Name must start with `nexus.`. **Response:** `200` or `409` if exists.
+
+## DELETE `/topics/{name}`
+
+Delete a topic.
+
+**Auth:** Admin JWT
+
+Default Nexus topics cannot be deleted. **Response:** `200` or `403`/`404`.

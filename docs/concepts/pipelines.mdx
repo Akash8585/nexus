@@ -1,0 +1,77 @@
+---
+title: Pipelines
+description: Pipeline runs, correlation IDs, tracking, replay, and completion.
+---
+
+## What is a pipeline?
+
+A **pipeline** is a sequence of agents working in order to complete a task. The demo pipeline:
+
+```
+Scout → Analyst → Writer → Deliverer
+```
+
+Each **pipeline run** is one execution from trigger to completion, identified by a **correlation ID** (e.g. `run_1780068737_a286ob`).
+
+## Pipeline run record
+
+When a run starts, Nexus stores:
+
+| Field | Description |
+| --- | --- |
+| `correlation_id` | Unique run ID |
+| `trigger_input` | Human or system trigger text |
+| `status` | `running`, `completed`, or `failed` |
+| `started_at` / `ended_at` | Timestamps |
+| `duration_ms` | Total duration |
+| `message_count` | Messages recorded for this run |
+| `agent_names` | Agents that participated |
+
+## Starting and completing runs
+
+**Start** (API key):
+
+```
+POST /api/v1/pipelines/start
+```
+
+```json
+{
+  "correlation_id": "run_abc123",
+  "trigger_input": "Morning briefing on AI news"
+}
+```
+
+**Complete** (API key):
+
+```
+POST /api/v1/pipelines/{correlation_id}/complete
+```
+
+```json
+{ "status": "completed" }
+```
+
+The demo `run.py` script calls both. Nexus also **auto-completes** a run when the deliverer publishes to `nexus.delivery` with `status: delivery_complete`.
+
+## Stale runs
+
+Runs stuck in `running` with no agent activity for 5+ minutes are automatically marked **failed**. Dashboard **Rerun** only registers a new run — execute the demo with `python run.py` to actually run agents.
+
+## Replay
+
+The dashboard pipeline detail page lets you **replay** messages step by step with play/pause controls — useful for debugging and demos.
+
+## Listing runs
+
+```
+GET /api/v1/pipelines?status=completed&limit=50
+GET /api/v1/pipelines/{correlation_id}
+```
+
+View all runs under **Pipelines** in the dashboard.
+
+## Next
+
+- [Context store](/concepts/context-store)
+- [API: Pipelines](/api-reference/pipelines)

@@ -1,0 +1,149 @@
+---
+title: Quickstart
+description: Run Nexus locally, create an admin, generate an API key, and connect your first agent.
+---
+
+## Prerequisites
+
+- [Docker](https://docs.docker.com/get-docker/) and Docker Compose
+- Python 3.9+ **or** Node.js 18+ (for the SDK)
+- A Groq or OpenAI API key (optional, for the demo pipeline)
+
+## Step 1 — Run Nexus with Docker
+
+Clone the repository and start the stack:
+
+```bash
+git clone https://github.com/Akash8585/nexus.git
+cd nexus
+docker compose up -d
+```
+
+Wait until all services are healthy:
+
+```bash
+docker compose ps
+```
+
+You should see `nexus-bus`, `nexus-kafka`, `nexus-redis`, and `nexus-zookeeper` running.
+
+| Service | URL |
+| --- | --- |
+| Nexus Bus API | `http://localhost:8000` |
+| Dashboard | `http://localhost:3000` |
+| Kafka UI | `http://localhost:8080` |
+
+<Note>
+  Start the dashboard separately: `cd dashboard && npm install && npm run dev`
+</Note>
+
+## Step 2 — Create an admin account
+
+1. Open `http://localhost:3000/signup`
+2. Create the first account — the **first user becomes admin** automatically
+3. Log in at `http://localhost:3000/login`
+
+## Step 3 — Generate an API key
+
+1. Go to **Settings → API Keys**
+2. Click **Generate key** and copy the value (starts with `nxs_live_sk_`)
+3. Store it securely — it is shown only once
+
+Agents use this key in the `Authorization: Bearer <api_key>` header.
+
+## Step 4 — Install the SDK
+
+<CodeGroup>
+
+```bash Python
+pip install nexus-bus
+```
+
+```bash JavaScript
+npm install nexus-bus
+```
+
+</CodeGroup>
+
+For local development from this repo:
+
+```bash
+cd sdk/python && pip install -e ".[dev]"
+# or
+cd sdk/javascript && npm install
+```
+
+## Step 5 — Connect an agent
+
+<CodeGroup>
+
+```python Python
+from nexus_bus import NexusAgent
+
+agent = NexusAgent(
+    name="writer-agent",
+    agent_type="writer",
+    subscribe_topic="nexus.analysis",
+    nexus_url="http://localhost:8000",
+    api_key="nxs_live_sk_your_key_here",
+)
+
+@agent.on_message
+def handle(message):
+    agent.publish(
+        "nexus.writing",
+        {"status": "writing_complete"},
+        message["correlation_id"],
+    )
+
+agent.start()
+```
+
+```typescript JavaScript
+import { NexusAgent } from "nexus-bus";
+
+const agent = new NexusAgent({
+  name: "writer-agent",
+  agentType: "writer",
+  subscribeTopic: "nexus.analysis",
+  nexusUrl: "http://localhost:8000",
+  apiKey: "nxs_live_sk_your_key_here",
+});
+
+agent.onMessage(async (message) => {
+  await agent.publish(
+    "nexus.writing",
+    { status: "writing_complete" },
+    message.correlation_id,
+  );
+});
+
+await agent.start();
+```
+
+</CodeGroup>
+
+## Run the demo pipeline
+
+The included demo runs four agents end-to-end:
+
+```bash
+cd demo
+cp .env.example .env   # add NEXUS_API_KEY and GROQ_API_KEY
+pip install -r requirements.txt
+python run.py "Give me a morning briefing on AI news"
+```
+
+### Expected output
+
+- Scout publishes headlines to `nexus.research`
+- Analyst ranks stories and publishes to `nexus.analysis`
+- Writer drafts a briefing and publishes to `nexus.writing`
+- Deliverer saves `demo/output/briefing_*.md`
+- Dashboard shows the pipeline run, messages, and agent activity in real time
+
+## Next steps
+
+- Read [Agents](/concepts/agents) and [Messages](/concepts/messages)
+- Browse the [Python SDK](/sdk/python) or [JavaScript SDK](/sdk/javascript) reference
+- Explore the [REST API](/api-reference/authentication)

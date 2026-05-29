@@ -1,0 +1,85 @@
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  sdk-python:
+    name: Python SDK
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: sdk/python
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: sdk/python/pyproject.toml
+      - name: Install dependencies
+        run: pip install -e ".[dev]"
+      - name: Run tests
+        run: pytest -q
+
+  sdk-javascript:
+    name: JavaScript SDK
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: sdk/javascript
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: sdk/javascript/package-lock.json
+      - name: Install dependencies
+        run: npm ci
+      - name: Run tests
+        run: npm test
+
+  backend:
+    name: FastAPI backend
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: bus/requirements.txt
+      - name: Start infrastructure
+        run: docker compose up -d zookeeper kafka redis nexus-bus
+      - name: Wait for services
+        run: |
+          echo "Waiting for Nexus Bus health..."
+          for i in $(seq 1 60); do
+            if curl -sf http://localhost:8000/health > /dev/null; then
+              echo "Nexus Bus is healthy"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Nexus Bus failed to become healthy"
+          docker compose ps
+          docker compose logs nexus-bus
+          exit 1
+      - name: Install backend dependencies
+        run: pip install -r bus/requirements.txt
+      - name: Seed test admin user
+        run: |
+          curl -sf -X POST http://localhost:8000/api/v1/auth/signup \
+            -H "Content-Type: application/json" \
+            -d '{"email":"admin@nexus.dev","password":"password123","name":"CI Admin"}' \
+            || echo "Admin user may already exist"
+      - name: Run context store tests
+        run: python bus/tests/test_context.py
+      - name: Run Kafka tests
+        run: python bus/tests/test_kafka.py
+      - name: Run WebSocket tests
+        run: python bus/tests/test_websocket.py

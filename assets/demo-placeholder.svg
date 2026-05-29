@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 540" fill="none" role="img" aria-label="Demo GIF placeholder">
+  <rect width="960" height="540" fill="#101010"/>
+  <rect x="24" y="24" width="912" height="492" rx="12" stroke="#3d3a39" stroke-width="2" fill="#1a1a1a"/>
+  <text x="480" y="250" text-anchor="middle" fill="#8b949e" font-family="Inter, system-ui, sans-serif" font-size="22">Demo GIF placeholder</text>
+  <text x="480" y="290" text-anchor="middle" fill="#00D992" font-family="Inter, system-ui, sans-serif" font-size="16">Record the demo pipeline on the dashboard and save as assets/demo.gif</text>
+</svg>

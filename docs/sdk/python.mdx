@@ -1,0 +1,118 @@
+---
+title: Python SDK
+description: Full reference for the nexus-bus Python package.
+---
+
+## Installation
+
+```bash
+pip install nexus-bus
+```
+
+Local development:
+
+```bash
+cd sdk/python
+pip install -e ".[dev]"
+```
+
+## Quickstart
+
+```python
+from nexus_bus import NexusAgent
+
+agent = NexusAgent(
+    name="writer-agent",
+    agent_type="writer",
+    subscribe_topic="nexus.analysis",
+    nexus_url="http://localhost:8000",
+    api_key="nxs_live_sk_your_key_here",
+)
+
+@agent.on_message
+def handle(message):
+    top5 = agent.context.get(message["correlation_id"], "top5_stories")
+    agent.publish("nexus.writing", {"status": "done"}, message["correlation_id"])
+
+agent.start()
+```
+
+## NexusAgent
+
+### Constructor
+
+```python
+NexusAgent(
+    name: str,
+    agent_type: str,
+    subscribe_topic: str,
+    nexus_url: str,
+    api_key: str,
+    *,
+    heartbeat_interval: float = 10.0,
+    poll_interval: float = 3.0,
+)
+```
+
+| Parameter | Description |
+| --- | --- |
+| `name` | Unique agent name |
+| `agent_type` | Role label (e.g. `writer`, `analyst`) |
+| `subscribe_topic` | Topic to consume |
+| `nexus_url` | Base URL of Nexus bus (no trailing slash) |
+| `api_key` | Nexus API key |
+| `heartbeat_interval` | Seconds between heartbeats (default `10`) |
+| `poll_interval` | Seconds between message polls (default `3`) |
+
+### Methods
+
+| Method | Returns | Description |
+| --- | --- | --- |
+| `register()` | `None` | Register with Nexus. Raises `NexusAuthError` on invalid key |
+| `deregister()` | `None` | Deregister from Nexus |
+| `publish(topic, payload, correlation_id)` | `dict` | Publish a message. Raises `NexusPublishError` on failure |
+| `on_message(callback)` | `Callable` | Register handler (decorator or direct call) |
+| `start(skip_existing=False)` | `NexusAgent` | Register, heartbeat, consume |
+| `stop()` | `None` | Stop loops and deregister |
+| `close()` | `None` | `stop()` plus close HTTP client |
+
+### Context manager
+
+```python
+with NexusAgent(...) as agent:
+    agent.start()
+```
+
+### `agent.context` — ContextClient
+
+| Method | Returns | Description |
+| --- | --- | --- |
+| `get(correlation_id, key)` | `Any \| None` | Read one key |
+| `set(correlation_id, key, value, ttl_hours=24)` | `dict` | Write one key |
+| `get_all(correlation_id)` | `dict` | All keys for a run |
+
+## Exceptions
+
+| Exception | When raised |
+| --- | --- |
+| `NexusAuthError` | Invalid API key |
+| `NexusConnectionError` | Cannot reach Nexus API |
+| `NexusPublishError` | Publish rejected |
+| `NexusConsumeError` | Message polling failed |
+
+```python
+from nexus_bus import NexusAgent, NexusAuthError, NexusPublishError
+
+try:
+    agent.register()
+except NexusAuthError:
+    print("Check your API key")
+```
+
+## Development
+
+```bash
+cd sdk/python
+pytest
+python -m build
+```

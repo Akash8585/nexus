@@ -1,0 +1,49 @@
+---
+title: Dead Letter Queue
+description: Failed messages, retry, discard, and how Nexus handles errors.
+---
+
+## What is the dead letter queue?
+
+The **dead letter queue (DLQ)** stores messages that **failed processing after retries**. Without a DLQ, one bad message could block an entire topic or pipeline.
+
+Failed messages are saved to Redis (`dlq:*` keys) and published to the `nexus.deadletter` Kafka topic.
+
+## Dead letter record
+
+Each DLQ entry contains:
+
+| Field | Description |
+| --- | --- |
+| `id` | Original message ID |
+| `original_message` | Full message payload and metadata |
+| `original_topic` | Topic the message came from |
+| `error` | Last error description |
+| `retry_count` | Number of retry attempts |
+| `failed_at` | Timestamp of failure |
+
+## Agent error counts
+
+When a message enters the DLQ, Nexus increments the **sender agent's error count**. The agent detail page shows DLQ entries filtered by `original_message.sender_agent`.
+
+## Admin actions
+
+From the dashboard **Dead Letter Queue** page or API:
+
+| Action | Endpoint | Description |
+| --- | --- | --- |
+| **List** | `GET /api/v1/deadletter` | All DLQ records |
+| **Retry** | `POST /api/v1/deadletter/{id}/retry` | Re-publish to original topic |
+| **Discard** | `DELETE /api/v1/deadletter/{id}` | Permanently remove |
+
+Retry and discard require **admin** role.
+
+## When to use retry vs discard
+
+- **Retry** — transient failure (network blip, agent was down). Re-queues the message.
+- **Discard** — poison message or invalid payload that will never succeed.
+
+## Next
+
+- [Messages](/concepts/messages)
+- [API: Dead letter](/api-reference/deadletter)

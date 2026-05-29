@@ -1,0 +1,57 @@
+---
+title: WebSocket
+description: Real-time dashboard events via WebSocket.
+---
+
+## WS `/ws/live`
+
+Live event stream for the Nexus dashboard.
+
+**URL:** `ws://localhost:8000/ws/live?token=<jwt>`
+
+**Auth:** JWT passed as query parameter `token`.
+
+## Connection
+
+The dashboard maintains a **single shared WebSocket** connection. On connect, the server sends periodic `ping` events every 30 seconds.
+
+## Event types
+
+| Event | Data | When |
+| --- | --- | --- |
+| `message.published` | Message object | New message on the bus |
+| `agent.registered` | Agent object | Agent registers |
+| `agent.heartbeat` | `{ name, timestamp }` | Agent heartbeat |
+| `agent.dead` | `{ name }` | Agent marked dead |
+| `pipeline.started` | `{ correlation_id, trigger_input }` | Pipeline run starts |
+| `pipeline.completed` | Pipeline run object | Run completes |
+| `pipeline.failed` | Pipeline run object | Run fails |
+| `ping` | — | Keepalive (ignored by client) |
+
+## Example payload
+
+```json
+{
+  "event": "message.published",
+  "data": {
+    "id": "msg_abc",
+    "topic": "nexus.research",
+    "correlation_id": "run_123",
+    "sender_agent": "scout-agent",
+    "payload": {}
+  },
+  "timestamp": "2026-05-29T21:00:00.000Z"
+}
+```
+
+## Reconnection
+
+The dashboard SDK reconnects automatically up to 10 times with a 5-second delay between attempts. The top bar shows **Live** (green) or **Reconnecting (n/10)** (red).
+
+## Health check
+
+```
+GET http://localhost:8000/health
+```
+
+**Response:** `{ "status": "ok", "service": "nexus-bus", "version": "1.0.0" }`

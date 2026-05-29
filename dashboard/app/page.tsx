@@ -10,10 +10,13 @@ import {
 import Link from "next/link";
 import type { ReactNode } from "react";
 
+const DOCS_URL = "https://nexus.mintlify.app";
+
 const navLinks = [
   { href: "#features", label: "Features" },
   { href: "#how-it-works", label: "How it works" },
-  { href: "https://github.com", label: "GitHub", external: true },
+  { href: DOCS_URL, label: "Docs", external: true },
+  { href: "https://github.com/Akash8585/nexus", label: "GitHub", external: true },
 ];
 
 const problemCards = [
@@ -70,7 +73,7 @@ const steps = [
   },
 ];
 
-const agentCode = `from nexus import NexusAgent
+const agentCode = `from nexus_bus import NexusAgent
 
 agent = NexusAgent(
   name="my-agent",
@@ -206,7 +209,10 @@ export default function LandingPage() {
           </p>
           <div className="mt-8 flex flex-col gap-3 sm:flex-row">
             <PrimaryLink href="/signup">Get started free</PrimaryLink>
-            <SecondaryLink href="https://github.com" external>
+            <SecondaryLink href={DOCS_URL} external>
+              Read the docs
+            </SecondaryLink>
+            <SecondaryLink href="https://github.com/Akash8585/nexus" external>
               View on GitHub
             </SecondaryLink>
           </div>
@@ -301,10 +307,10 @@ export default function LandingPage() {
             <p className="mt-2 text-[#bdbdbd]">Open source. Free forever.</p>
           </div>
           <div className="flex flex-col gap-2 md:items-center">
-            <Link href="https://github.com" className="hover:text-white">
+            <Link href="https://github.com/Akash8585/nexus" className="hover:text-white">
               GitHub
             </Link>
-            <Link href="/docs" className="hover:text-white">
+            <Link href={DOCS_URL} className="hover:text-white">
               Docs
             </Link>
             <Link href="/license" className="hover:text-white">

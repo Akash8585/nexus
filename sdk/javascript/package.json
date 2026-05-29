@@ -1,0 +1,47 @@
+{
+  "name": "nexus-bus",
+  "version": "0.1.0",
+  "description": "Official JavaScript SDK for the Nexus multi-agent coordination bus",
+  "license": "MIT",
+  "author": "Akash <cashnova10@gmail.com>",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Akash8585/nexus.git",
+    "directory": "sdk/javascript"
+  },
+  "homepage": "https://github.com/Akash8585/nexus/tree/main/sdk/javascript",
+  "keywords": [
+    "nexus",
+    "agents",
+    "kafka",
+    "multi-agent",
+    "coordination"
+  ],
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md",
+    "CHANGELOG.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "prepublishOnly": "npm run build && npm test"
+  },
+  "dependencies": {
+    "axios": "^1.9.0",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.21",
+    "@types/ws": "^8.18.1",
+    "axios-mock-adapter": "^2.1.0",
+    "typescript": "^5.8.3",
+    "vitest": "^3.1.4"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
