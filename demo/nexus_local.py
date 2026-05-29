@@ -76,6 +76,29 @@ class NexusAgent:
         response.raise_for_status()
         return response.json()
 
+    def start_pipeline(self, correlation_id: str, trigger_input: str) -> dict[str, Any]:
+        response = self.client.post(
+            f"{self.nexus_url}/api/v1/pipelines/start",
+            json={
+                "correlation_id": correlation_id,
+                "trigger_input": trigger_input,
+            },
+        )
+        response.raise_for_status()
+        return response.json()
+
+    def complete_pipeline(
+        self,
+        correlation_id: str,
+        status: str = "completed",
+    ) -> dict[str, Any]:
+        response = self.client.post(
+            f"{self.nexus_url}/api/v1/pipelines/{correlation_id}/complete",
+            json={"status": status},
+        )
+        response.raise_for_status()
+        return response.json()
+
     def context_write(
         self,
         correlation_id: str,

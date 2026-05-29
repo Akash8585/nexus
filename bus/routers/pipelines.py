@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, Query, Request
 from pydantic import BaseModel
@@ -6,7 +6,7 @@ from pydantic import BaseModel
 from auth.api_keys import validate_api_key
 from auth.jwt import get_current_user, require_admin
 from pipeline.tracker import PipelineTracker
-from websocket.live import PIPELINE_STARTED, manager
+from websocket.live import PIPELINE_COMPLETED, PIPELINE_FAILED, PIPELINE_STARTED, manager
 
 
 router = APIRouter()
@@ -15,6 +15,10 @@ router = APIRouter()
 class PipelineStartRequest(BaseModel):
     correlation_id: str
     trigger_input: str
+
+
+class PipelineCompleteRequest(BaseModel):
+    status: Literal["completed", "failed"] = "completed"
 
 
 def get_pipeline_tracker(request: Request) -> PipelineTracker:
@@ -35,6 +39,21 @@ async def start_pipeline(
             "trigger_input": request_body.trigger_input,
         },
     )
+    return run
+
+
+@router.post("/{correlation_id}/complete")
+async def complete_pipeline(
+    correlation_id: str,
+    request_body: PipelineCompleteRequest,
+    api_key: dict = Depends(validate_api_key),
+    tracker: PipelineTracker = Depends(get_pipeline_tracker),
+) -> dict[str, Any]:
+    run = tracker.end_run(correlation_id, request_body.status)
+    event_type = (
+        PIPELINE_COMPLETED if request_body.status == "completed" else PIPELINE_FAILED
+    )
+    await manager.broadcast(event_type, run)
     return run
 
 

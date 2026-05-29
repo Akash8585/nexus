@@ -6,7 +6,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { AuthGuard } from "@/components/AuthGuard";
 import { getToken, isAdmin } from "@/lib/auth";
 
-const API_URL = "/api/nexus/proxy";
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "";
 const defaultTopics = new Set([
   "nexus.research",
   "nexus.analysis",
@@ -21,7 +21,7 @@ type Topic = {
   partition_count?: number;
   partitions?: number;
   message_count?: number;
-  created_date?: string | null;
+  size_bytes?: number;
 };
 
 function authHeaders(): HeadersInit {
@@ -29,15 +29,11 @@ function authHeaders(): HeadersInit {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
-function relativeTime(value?: string | null) {
-  if (!value) return "Unknown";
-  const seconds = Math.max(0, Math.floor((Date.now() - new Date(value).getTime()) / 1000));
-  if (seconds < 60) return `${seconds}s ago`;
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  return `${Math.floor(hours / 24)}d ago`;
+function formatBytes(bytes?: number) {
+  const value = bytes ?? 0;
+  if (value < 1024) return `${value} B`;
+  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
+  return `${(value / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 async function readError(response: Response) {
@@ -62,13 +58,19 @@ export default function TopicsPage() {
   const [retentionDays, setRetentionDays] = useState(7);
   const [formError, setFormError] = useState("");
 
-  const refreshTopics = useCallback(async () => {
+  const refreshTopics = useCallback(async (retry = true) => {
     try {
       const response = await fetch(`${API_URL}/topics`, {
         headers: authHeaders(),
         cache: "no-store",
       });
-      if (!response.ok) throw new Error(await readError(response));
+      if (!response.ok) {
+        if (retry && (response.status === 500 || response.status === 503)) {
+          await new Promise((resolve) => window.setTimeout(resolve, 400));
+          return refreshTopics(false);
+        }
+        throw new Error(await readError(response));
+      }
       setTopics(await response.json());
       setError("");
     } catch (err) {
@@ -195,7 +197,7 @@ export default function TopicsPage() {
                     <th className="px-4 py-3 font-medium">Type</th>
                     <th className="px-4 py-3 font-medium">Partitions</th>
                     <th className="px-4 py-3 font-medium">Messages</th>
-                    <th className="px-4 py-3 font-medium">Created</th>
+                    <th className="px-4 py-3 font-medium">Size</th>
                     <th className="px-4 py-3 text-right font-medium">Actions</th>
                   </tr>
                 </thead>
@@ -221,7 +223,7 @@ export default function TopicsPage() {
                         </td>
                         <td className="px-4 py-4 text-[#bdbdbd]">{topic.message_count ?? 0}</td>
                         <td className="px-4 py-4 text-[#8b949e]">
-                          {relativeTime(topic.created_date)}
+                          {formatBytes(topic.size_bytes)}
                         </td>
                         <td className="px-4 py-4 text-right">
                           {canAdmin ? (

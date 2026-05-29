@@ -93,31 +93,57 @@ function statusDot(status: Agent["status"]) {
   return "bg-[#6b7280]";
 }
 
-function mockTrend(total: number) {
-  const safeTotal = Math.max(total, 0);
-  return Array.from({ length: 8 }, (_, index) => ({
-    label: `T-${7 - index}`,
-    value: Math.max(0, Math.round((safeTotal * (index + 1)) / 8)),
-  }));
+function buildHourlyBucketData(timestamps: string[], currentTime: number) {
+  const bucketCount = 8;
+  const hourMs = 60 * 60 * 1000;
+
+  return Array.from({ length: bucketCount }, (_, index) => {
+    const hoursAgo = bucketCount - 1 - index;
+    const bucketStart = currentTime - (hoursAgo + 1) * hourMs;
+    const bucketEnd = currentTime - hoursAgo * hourMs;
+    const value = timestamps.filter((timestamp) => {
+      const ts = new Date(timestamp).getTime();
+      return ts >= bucketStart && ts < bucketEnd;
+    }).length;
+
+    return {
+      label: hoursAgo === 0 ? "Now" : `-${hoursAgo}h`,
+      value,
+    };
+  });
 }
+
+type AgentError = {
+  id: string;
+  original_topic?: string;
+  error?: string;
+  retry_count?: number;
+  failed_at?: string;
+  original_message?: {
+    correlation_id?: string;
+    topic?: string;
+  };
+};
 
 function ChartPanel({
   title,
   value,
+  data,
   color,
+  subtitle,
 }: {
   title: string;
   value: number;
+  data: { label: string; value: number }[];
   color: string;
+  subtitle: string;
 }) {
   return (
     <section className="rounded-[8px] border border-[#3d3a39] bg-[#101010] p-5">
       <div className="mb-4 flex items-start justify-between gap-4">
         <div>
           <h2 className="text-lg font-semibold text-white">{title}</h2>
-          <p className="mt-1 text-xs text-[#8b949e]">
-            Historical data coming soon
-          </p>
+          <p className="mt-1 text-xs text-[#8b949e]">{subtitle}</p>
         </div>
         <span className="font-mono text-2xl font-semibold text-[#f5f6f7]">
           {value}
@@ -125,7 +151,7 @@ function ChartPanel({
       </div>
       <div className="h-[200px]">
         <ResponsiveContainer width="100%" height="100%">
-          <LineChart data={mockTrend(value)} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
+          <LineChart data={data} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
             <CartesianGrid stroke="#3d3a39" strokeDasharray="3 3" />
             <XAxis dataKey="label" stroke="#8b949e" fontSize={12} tickLine={false} />
             <YAxis stroke="#8b949e" fontSize={12} tickLine={false} width={32} />
@@ -187,6 +213,7 @@ function AgentDetailContent() {
   const agentName = decodeURIComponent(params.name);
   const [agent, setAgent] = useState<Agent | null>(null);
   const [messages, setMessages] = useState<NexusMessage[]>([]);
+  const [errors, setErrors] = useState<AgentError[]>([]);
   const [selectedMessage, setSelectedMessage] = useState<NexusMessage | null>(null);
   const [canAdmin, setCanAdmin] = useState(false);
   const [notFound, setNotFound] = useState(false);
@@ -197,12 +224,16 @@ function AgentDetailContent() {
 
   const fetchAgentDetails = useCallback(async () => {
     try {
-      const [agentResponse, messagesResponse] = await Promise.all([
+      const [agentResponse, messagesResponse, errorsResponse] = await Promise.all([
         fetch(`${API_URL}/agents/${encodeURIComponent(agentName)}`, {
           headers: authHeaders(),
           cache: "no-store",
         }),
         fetch(`${API_URL}/messages?agent=${encodeURIComponent(agentName)}&limit=100`, {
+          headers: authHeaders(),
+          cache: "no-store",
+        }),
+        fetch(`${API_URL}/agents/${encodeURIComponent(agentName)}/errors`, {
           headers: authHeaders(),
           cache: "no-store",
         }),
@@ -212,12 +243,13 @@ function AgentDetailContent() {
         setNotFound(true);
         return;
       }
-      if (!agentResponse.ok || !messagesResponse.ok) {
+      if (!agentResponse.ok || !messagesResponse.ok || !errorsResponse.ok) {
         throw new Error("Failed to load agent details");
       }
 
       setAgent(await agentResponse.json());
       setMessages(await messagesResponse.json());
+      setErrors(await errorsResponse.json());
       setNotFound(false);
       setError("");
     } catch (err) {
@@ -250,6 +282,20 @@ function AgentDetailContent() {
   );
   const totalPages = Math.max(1, Math.ceil(messages.length / pageSize));
   const visibleMessages = messages.slice((page - 1) * pageSize, page * pageSize);
+  const messageCount = messages.length;
+  const errorCount = errors.length;
+  const messageVolumeData = useMemo(
+    () => buildHourlyBucketData(messages.map((message) => message.timestamp), now || Date.now()),
+    [messages, now],
+  );
+  const errorVolumeData = useMemo(
+    () =>
+      buildHourlyBucketData(
+        errors.map((record) => record.failed_at || ""),
+        now || Date.now(),
+      ),
+    [errors, now],
+  );
 
   async function deregisterAgent() {
     if (!agent) return;
@@ -362,16 +408,16 @@ function AgentDetailContent() {
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <MetricCard
           title="Messages Processed"
-          value={agent.messages_processed}
+          value={messageCount}
           subtitle="total messages"
           icon={MessageSquare}
         />
         <MetricCard
           title="Error Count"
-          value={agent.error_count}
+          value={errorCount}
           subtitle="total errors"
           icon={AlertCircle}
-          danger={agent.error_count > 0}
+          danger={errorCount > 0}
         />
         <MetricCard
           title="Uptime"
@@ -391,13 +437,17 @@ function AgentDetailContent() {
       <section className="grid gap-4 xl:grid-cols-2">
         <ChartPanel
           title="Message Volume"
-          value={agent.messages_processed}
+          value={messageCount}
+          data={messageVolumeData}
           color="#00d992"
+          subtitle="Messages per hour over the last 8 hours"
         />
         <ChartPanel
           title="Error Rate"
-          value={agent.error_count}
-          color={agent.error_count > 0 ? "#ef4444" : "#8b949e"}
+          value={errorCount}
+          data={errorVolumeData}
+          color={errorCount > 0 ? "#ef4444" : "#8b949e"}
+          subtitle="Errors per hour over the last 8 hours"
         />
       </section>
 
@@ -482,23 +532,67 @@ function AgentDetailContent() {
         )}
       </section>
 
-      <section className="rounded-[8px] border border-[#3d3a39] bg-[#101010] p-5">
-        <h2 className="text-lg font-semibold text-white">Error Log</h2>
-        {agent.error_count === 0 ? (
-          <div className="mt-4 rounded-[8px] border border-green-900 bg-green-950 p-4 text-sm text-green-300">
-            No errors recorded
-          </div>
+      <section className="rounded-[8px] border border-[#3d3a39] bg-[#101010]">
+        <div className="border-b border-[#3d3a39] px-5 py-4">
+          <h2 className="text-lg font-semibold text-white">Error Log</h2>
+          <p className="mt-1 text-sm text-[#8b949e]">
+            Dead letter queue entries from this agent
+          </p>
+        </div>
+        {errors.length === 0 ? (
+          <div className="p-8 text-center text-sm text-[#8b949e]">No errors recorded</div>
         ) : (
-          <div className="mt-4 rounded-[8px] border border-red-900 bg-red-950 p-4">
-            <p className="font-mono text-2xl font-semibold text-red-200">
-              {agent.error_count}
-            </p>
-            <p className="mt-2 text-sm text-red-200">
-              {agent.error_count} errors recorded
-            </p>
-            <p className="mt-1 text-sm text-red-300">
-              Detailed error logs coming in v2
-            </p>
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[760px] text-left text-sm">
+              <thead className="border-b border-[#3d3a39] bg-[#1a1a1a] text-xs uppercase text-[#8b949e]">
+                <tr>
+                  <th className="px-4 py-3 font-medium">Topic</th>
+                  <th className="px-4 py-3 font-medium">Correlation ID</th>
+                  <th className="px-4 py-3 font-medium">Failed at</th>
+                  <th className="px-4 py-3 font-medium">Error</th>
+                  <th className="px-4 py-3 font-medium">Retries</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-[#3d3a39]">
+                {errors.map((record) => (
+                  <tr key={record.id} className="transition hover:bg-[#1a1a1a]">
+                    <td className="px-4 py-3">
+                      <Badge tone={topicTone(record.original_topic || "")}>
+                        {shortTopic(record.original_topic || "unknown")}
+                      </Badge>
+                    </td>
+                    <td className="px-4 py-3">
+                      {record.original_message?.correlation_id ? (
+                        <Link
+                          href={`/dashboard/pipelines/${encodeURIComponent(record.original_message.correlation_id)}`}
+                          className="font-mono text-xs text-[#bdbdbd] transition hover:text-[#00d992]"
+                        >
+                          {truncate(record.original_message.correlation_id, 18)}
+                        </Link>
+                      ) : (
+                        <span className="font-mono text-xs text-[#8b949e]">—</span>
+                      )}
+                    </td>
+                    <td
+                      className="px-4 py-3 text-xs text-[#8b949e]"
+                      title={
+                        record.failed_at
+                          ? new Date(record.failed_at).toISOString()
+                          : undefined
+                      }
+                    >
+                      {record.failed_at ? relativeTime(record.failed_at, now) : "—"}
+                    </td>
+                    <td className="px-4 py-3 text-xs text-red-300">
+                      {truncate(record.error || "Unknown error", 80)}
+                    </td>
+                    <td className="px-4 py-3 font-mono text-xs text-[#bdbdbd]">
+                      {record.retry_count ?? 0}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         )}
       </section>

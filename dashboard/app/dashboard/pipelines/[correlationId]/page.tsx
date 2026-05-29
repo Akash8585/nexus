@@ -27,6 +27,7 @@ type PipelineRun = {
   message_count: number;
   messages?: string[];
   agent_names?: string[];
+  failure_reason?: string;
 };
 
 type ContextMap = Record<string, unknown>;
@@ -112,7 +113,11 @@ function ConfirmRerunModal({
       <section className="w-full max-w-md rounded-[8px] border border-[#3d3a39] bg-[#101010] p-6 shadow-[0_20px_60px_rgba(0,0,0,0.7)]">
         <h2 className="text-lg font-semibold text-white">Re-run Pipeline</h2>
         <p className="mt-3 text-sm leading-6 text-[#bdbdbd]">
-          This will start a new pipeline run with the same trigger input. Continue?
+          This registers a new pipeline run with the same trigger input. You still
+          need to execute it from the demo folder:
+        </p>
+        <p className="mt-3 rounded-[6px] border border-[#3d3a39] bg-[#1a1a1a] px-3 py-2 font-mono text-xs text-[#8b949e]">
+          python run.py &quot;&lt;trigger&gt;&quot;
         </p>
         <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:justify-end">
           <Button variant="secondary" onClick={onCancel}>
@@ -324,8 +329,13 @@ function PipelineDetailContent() {
 
         {run.status === "failed" ? (
           <div className="mt-5 rounded-[8px] border border-red-900 bg-red-950 p-4 text-sm text-red-200">
-            Pipeline failed
-            {run.ended_at ? ` at ${new Date(run.ended_at).toLocaleString()}` : ""}
+            <p>
+              Pipeline failed
+              {run.ended_at ? ` at ${new Date(run.ended_at).toLocaleString()}` : ""}
+            </p>
+            {run.failure_reason ? (
+              <p className="mt-2 text-xs text-red-300">{run.failure_reason}</p>
+            ) : null}
           </div>
         ) : null}
       </header>

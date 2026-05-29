@@ -7,10 +7,39 @@ from redis import Redis
 
 try:
     from ..models.message import NexusMessage
+    from ..registry.registry import agent_registry
     from .producer import NexusProducer
 except ImportError:
     from models.message import NexusMessage
+    from registry.registry import agent_registry
     from kafka.producer import NexusProducer
+
+
+def count_agent_errors(redis_client: Redis, agent_name: str) -> int:
+    count = 0
+    for key in redis_client.scan_iter("dlq:*"):
+        raw_record = redis_client.get(key)
+        if raw_record is None:
+            continue
+        record = json.loads(raw_record.decode("utf-8"))
+        sender = record.get("original_message", {}).get("sender_agent")
+        if sender == agent_name:
+            count += 1
+    return count
+
+
+def list_agent_errors(redis_client: Redis, agent_name: str) -> list[dict[str, Any]]:
+    records: list[dict[str, Any]] = []
+    for key in redis_client.scan_iter("dlq:*"):
+        raw_record = redis_client.get(key)
+        if raw_record is None:
+            continue
+        record = json.loads(raw_record.decode("utf-8"))
+        sender = record.get("original_message", {}).get("sender_agent")
+        if sender == agent_name:
+            records.append(record)
+    records.sort(key=lambda record: record.get("failed_at", ""), reverse=True)
+    return records
 
 
 class DeadLetterQueue:
@@ -38,6 +67,12 @@ class DeadLetterQueue:
 
         self.producer.publish("nexus.deadletter", record)
         self.redis.set(self._key(message_id), json.dumps(record))
+        sender = message_payload.get("sender_agent")
+        if sender:
+            try:
+                agent_registry.increment_errors(sender)
+            except Exception:
+                pass
         return record
 
     def list(self) -> list[dict[str, Any]]:

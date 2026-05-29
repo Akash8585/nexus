@@ -187,7 +187,7 @@ export default function LandingPage() {
           </div>
           <div className="flex items-center gap-2">
             <SecondaryLink href="/login">Log in</SecondaryLink>
-            <PrimaryLink href="/setup">Get started</PrimaryLink>
+            <PrimaryLink href="/signup">Get started</PrimaryLink>
           </div>
         </div>
       </nav>
@@ -205,7 +205,7 @@ export default function LandingPage() {
             See everything.
           </p>
           <div className="mt-8 flex flex-col gap-3 sm:flex-row">
-            <PrimaryLink href="/setup">Get started free</PrimaryLink>
+            <PrimaryLink href="/signup">Get started free</PrimaryLink>
             <SecondaryLink href="https://github.com" external>
               View on GitHub
             </SecondaryLink>

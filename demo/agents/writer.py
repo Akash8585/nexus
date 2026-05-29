@@ -121,6 +121,9 @@ Stay informed and keep building."""
         print("👂 Writer: Listening on nexus.analysis...")
         self.nexus.start(callback=self.handle_message, skip_existing=skip_existing)
 
+    def start(self, skip_existing: bool = False) -> None:
+        self.run(skip_existing=skip_existing)
+
 
 if __name__ == "__main__":
     import time

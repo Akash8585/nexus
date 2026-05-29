@@ -58,7 +58,11 @@ function SignupForm() {
 
     setLoading(true);
     try {
-      const response = await fetch(`${API_URL}/auth/signup?token=${token}`, {
+      const signupUrl = token
+        ? `${API_URL}/auth/signup?token=${encodeURIComponent(token)}`
+        : `${API_URL}/auth/signup`;
+
+      const response = await fetch(signupUrl, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -81,28 +85,26 @@ function SignupForm() {
     }
   }
 
-  if (!token) {
-    return (
-      <main className="flex min-h-screen items-center justify-center bg-[#101010] px-4 py-12 text-[#f2f2f2]">
-        <Card className="max-w-md bg-[#1a1a1a] text-center">
-          <h1 className="text-2xl font-semibold text-white">Invalid invitation</h1>
-          <p className="mt-3 text-sm text-[#bdbdbd]">
-            Invalid invitation. Ask your admin to invite you.
-          </p>
-        </Card>
-      </main>
-    );
-  }
+  const isInviteSignup = Boolean(token);
 
   return (
     <main className="flex min-h-screen items-center justify-center bg-[#101010] px-4 py-12 text-[#f2f2f2]">
       <div className="w-full max-w-md">
         <div className="mb-8 text-center">
           <h1 className="text-4xl font-bold text-[#00d992]">NEXUS</h1>
-          <p className="mt-2 text-sm text-[#bdbdbd]">Create your invited account</p>
+          <p className="mt-2 text-sm text-[#bdbdbd]">
+            {isInviteSignup
+              ? "Create your invited account"
+              : "Create the first admin account"}
+          </p>
         </div>
 
         <Card className="bg-[#1a1a1a]">
+          {!isInviteSignup ? (
+            <p className="mb-5 rounded-[6px] border border-[#3d3a39] bg-[#101010] px-3 py-2 text-sm text-[#bdbdbd]">
+              Fresh Nexus install — the first account becomes Admin automatically.
+            </p>
+          ) : null}
           <form className="space-y-5" onSubmit={handleSubmit}>
             <div>
               <label className="mb-2 block text-sm font-medium" htmlFor="name">

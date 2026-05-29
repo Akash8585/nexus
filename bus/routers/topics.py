@@ -1,11 +1,11 @@
-from datetime import datetime, timezone
-
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
+from redis import Redis
 
 from auth.jwt import get_current_user, require_admin
 from kafka.default_topics import DEFAULT_TOPICS
 from kafka.topics import TopicManager
+from routers.messages import aggregate_topic_stats
 
 
 router = APIRouter()
@@ -21,7 +21,15 @@ def get_topic_manager(request: Request) -> TopicManager:
     return request.app.state.topic_manager
 
 
-def _topic_metadata(manager: TopicManager, name: str) -> dict:
+def get_redis(request: Request) -> Redis:
+    return request.app.state.redis
+
+
+def _topic_metadata(
+    manager: TopicManager,
+    name: str,
+    topic_stats: dict[str, dict[str, int]],
+) -> dict:
     partition_count = 0
 
     try:
@@ -31,11 +39,13 @@ def _topic_metadata(manager: TopicManager, name: str) -> dict:
     except Exception:
         partition_count = 0
 
+    stats = topic_stats.get(name, {"message_count": 0, "size_bytes": 0})
+
     return {
         "name": name,
         "partition_count": partition_count,
-        "message_count": 0,
-        "created_date": None,
+        "message_count": stats["message_count"],
+        "size_bytes": stats["size_bytes"],
     }
 
 
@@ -43,8 +53,14 @@ def _topic_metadata(manager: TopicManager, name: str) -> dict:
 def list_topics(
     current_user: dict = Depends(get_current_user),
     manager: TopicManager = Depends(get_topic_manager),
+    redis_client: Redis = Depends(get_redis),
 ) -> list[dict]:
-    return [_topic_metadata(manager, name) for name in manager.list_topics()]
+    try:
+        topic_names = manager.list_topics()
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    topic_stats = aggregate_topic_stats(redis_client)
+    return [_topic_metadata(manager, name, topic_stats) for name in topic_names]
 
 
 @router.post("")
@@ -52,6 +68,7 @@ def create_topic(
     request_body: TopicCreateRequest,
     admin: dict = Depends(require_admin),
     manager: TopicManager = Depends(get_topic_manager),
+    redis_client: Redis = Depends(get_redis),
 ) -> dict:
     if not request_body.name.startswith("nexus."):
         raise HTTPException(
@@ -66,9 +83,9 @@ def create_topic(
         )
 
     manager.create_topic(request_body.name, partitions=request_body.partitions)
-    metadata = _topic_metadata(manager, request_body.name)
+    topic_stats = aggregate_topic_stats(redis_client)
+    metadata = _topic_metadata(manager, request_body.name, topic_stats)
     metadata["retention_days"] = request_body.retention_days
-    metadata["created_date"] = datetime.now(timezone.utc).isoformat()
     return metadata
 
 

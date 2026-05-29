@@ -97,6 +97,13 @@ def main() -> None:
         api_key=NEXUS_API_KEY,
     )
 
+    try:
+        monitor.start_pipeline(correlation_id, args.trigger)
+        success(f"✓ Pipeline run registered: {correlation_id}")
+    except Exception as exc:
+        error(f"❌ Failed to register pipeline run: {exc}")
+        return
+
     info("Starting agents...")
 
     analyst = AnalystAgent()
@@ -151,6 +158,10 @@ def main() -> None:
     print()
     info("=" * 55)
     if completed:
+        try:
+            monitor.complete_pipeline(correlation_id, "completed")
+        except Exception as exc:
+            warn(f"⚠ Could not mark pipeline completed in Nexus: {exc}")
         success("🎉 PIPELINE COMPLETE!")
         success(f"   Duration: {duration} seconds")
         success(f"   Correlation ID: {correlation_id}")
@@ -166,6 +177,10 @@ def main() -> None:
         if files:
             success(f"   Output: demo/output/{files[-1]}")
     else:
+        try:
+            monitor.complete_pipeline(correlation_id, "failed")
+        except Exception:
+            pass
         error("❌ Pipeline timed out after 120 seconds")
         error("   Check agent logs for errors")
     info("=" * 55)

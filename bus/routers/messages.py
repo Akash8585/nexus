@@ -10,12 +10,41 @@ from auth.jwt import get_current_user
 from kafka.producer import NexusProducer
 from kafka.topics import TopicManager
 from models.message import NexusMessage
+from pipeline.tracker import PipelineTracker
 from registry.registry import agent_registry
-from websocket.live import MESSAGE_PUBLISHED, manager
+from websocket.live import MESSAGE_PUBLISHED, PIPELINE_COMPLETED, manager
 
 
 router = APIRouter()
 MESSAGE_TTL_SECONDS = 7 * 24 * 60 * 60
+
+
+def count_agent_messages(redis_client: Redis, agent_name: str) -> int:
+    count = 0
+    for key in redis_client.scan_iter("messages:*"):
+        raw_message = redis_client.get(key)
+        if raw_message is None:
+            continue
+        message = NexusMessage.from_json(raw_message.decode("utf-8"))
+        if message.sender_agent == agent_name:
+            count += 1
+    return count
+
+
+def aggregate_topic_stats(redis_client: Redis) -> dict[str, dict[str, int]]:
+    stats: dict[str, dict[str, int]] = {}
+    for key in redis_client.scan_iter("messages:*"):
+        raw_message = redis_client.get(key)
+        if raw_message is None:
+            continue
+        message = NexusMessage.from_json(raw_message.decode("utf-8"))
+        topic_stats = stats.setdefault(
+            message.topic,
+            {"message_count": 0, "size_bytes": 0},
+        )
+        topic_stats["message_count"] += 1
+        topic_stats["size_bytes"] += len(raw_message)
+    return stats
 
 
 class MessagePublishRequest(BaseModel):
@@ -37,6 +66,10 @@ def get_topic_manager(request: Request) -> TopicManager:
     return request.app.state.topic_manager
 
 
+def get_pipeline_tracker(request: Request) -> PipelineTracker:
+    return request.app.state.pipeline_tracker
+
+
 def validate_api_key_or_jwt(authorization: str | None = Header(default=None)) -> dict:
     if not authorization:
         raise HTTPException(status_code=401, detail="Missing Authorization header")
@@ -55,6 +88,7 @@ async def publish_message(
     redis_client: Redis = Depends(get_redis),
     producer: NexusProducer = Depends(get_producer),
     topic_manager: TopicManager = Depends(get_topic_manager),
+    pipeline_tracker: PipelineTracker = Depends(get_pipeline_tracker),
 ) -> NexusMessage:
     if not topic_manager.topic_exists(request_body.topic):
         raise HTTPException(
@@ -73,7 +107,25 @@ async def publish_message(
 
     producer.publish(request_body.topic, json.loads(message.to_json()))
     redis_client.setex(f"messages:{message.id}", MESSAGE_TTL_SECONDS, message.to_json())
+    pipeline_tracker.record_message(
+        request_body.correlation_id,
+        message.id,
+        request_body.sender_agent,
+    )
+    agent_registry.increment_messages(request_body.sender_agent)
     await manager.broadcast(MESSAGE_PUBLISHED, message.model_dump(mode="json"))
+
+    if (
+        request_body.topic == "nexus.delivery"
+        and request_body.payload.get("status") == "delivery_complete"
+    ):
+        existing_run = pipeline_tracker.find_run(request_body.correlation_id)
+        if existing_run and existing_run.get("status") == "running":
+            completed_run = pipeline_tracker.end_run(
+                request_body.correlation_id,
+                "completed",
+            )
+            await manager.broadcast(PIPELINE_COMPLETED, completed_run)
 
     return message
 

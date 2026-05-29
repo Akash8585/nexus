@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FormEvent, useState } from "react";
 import { useEffect } from "react";
@@ -100,7 +101,10 @@ export default function LoginPage() {
         </Card>
 
         <p className="mt-5 text-center text-sm text-[#8b949e]">
-          Need access? Contact your admin
+          First time here?{" "}
+          <Link href="/signup" className="text-[#00d992] hover:underline">
+            Create admin account
+          </Link>
         </p>
       </div>
     </main>

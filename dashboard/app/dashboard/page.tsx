@@ -198,6 +198,28 @@ export default function DashboardPage() {
           [run, ...current].slice(0, 10),
         );
       }),
+      on("pipeline.completed", (data) => {
+        const pipeline = data as PipelineRun;
+        setPipelines((current) =>
+          current.map((run) =>
+            run.correlation_id === pipeline.correlation_id ? pipeline : run,
+          ),
+        );
+      }),
+      on("pipeline.failed", (data) => {
+        const pipeline = data as PipelineRun;
+        setPipelines((current) =>
+          current.map((run) =>
+            run.correlation_id === pipeline.correlation_id ? pipeline : run,
+          ),
+        );
+        setFailedRuns((current) => {
+          const exists = current.some(
+            (run) => run.correlation_id === pipeline.correlation_id,
+          );
+          return exists ? current : [pipeline, ...current];
+        });
+      }),
     ];
 
     return () => {

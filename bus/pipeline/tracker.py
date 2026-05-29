@@ -8,6 +8,9 @@ from redis import Redis
 
 
 class PipelineTracker:
+    STALE_EMPTY_MINUTES = 5
+    STALE_MAX_MINUTES = 120
+
     def __init__(self, redis_client: Redis) -> None:
         self.redis = redis_client
 
@@ -60,7 +63,28 @@ class PipelineTracker:
                 status_code=404,
                 detail=f"Pipeline run '{correlation_id}' not found",
             )
-        return json.loads(raw_run.decode("utf-8"))
+        return self.maybe_resolve_stale_run(json.loads(raw_run.decode("utf-8")))
+
+    def find_run(self, correlation_id: str) -> dict[str, Any] | None:
+        raw_run = self.redis.get(self._key(correlation_id))
+        if raw_run is None:
+            return None
+        return self.maybe_resolve_stale_run(json.loads(raw_run.decode("utf-8")))
+
+    def record_message(
+        self,
+        correlation_id: str,
+        message_id: str,
+        agent_name: str,
+    ) -> None:
+        run = self.find_run(correlation_id)
+        if run is None:
+            return
+        run["messages"].append(message_id)
+        run["message_count"] = len(run["messages"])
+        if agent_name not in run["agent_names"]:
+            run["agent_names"].append(agent_name)
+        self._save(run)
 
     def list_runs(self, status: str | None = None, limit: int = 50) -> list[dict[str, Any]]:
         runs: list[dict[str, Any]] = []
@@ -75,7 +99,37 @@ class PipelineTracker:
             runs.append(run)
 
         runs.sort(key=lambda run: run["started_at"], reverse=True)
-        return runs[:limit]
+        return [self.maybe_resolve_stale_run(run) for run in runs[:limit]]
+
+    def maybe_resolve_stale_run(self, run: dict[str, Any]) -> dict[str, Any]:
+        if run.get("status") != "running":
+            return run
+
+        started_at = datetime.fromisoformat(run["started_at"])
+        age_minutes = (datetime.now(timezone.utc) - started_at).total_seconds() / 60
+        should_fail = False
+        reason = ""
+
+        if run.get("message_count", 0) == 0 and age_minutes >= self.STALE_EMPTY_MINUTES:
+            should_fail = True
+            reason = (
+                "No agent activity detected. Dashboard rerun only registers a run — "
+                "execute it with: python run.py \"<trigger>\""
+            )
+        elif age_minutes >= self.STALE_MAX_MINUTES:
+            should_fail = True
+            reason = "Pipeline timed out before completion"
+
+        if not should_fail:
+            return run
+
+        ended_at = datetime.now(timezone.utc)
+        run["status"] = "failed"
+        run["ended_at"] = ended_at.isoformat()
+        run["duration_ms"] = int((ended_at - started_at).total_seconds() * 1000)
+        run["failure_reason"] = reason
+        self._save(run)
+        return run
 
     def rerun(self, correlation_id: str) -> dict[str, Any]:
         original_run = self.get_run(correlation_id)
