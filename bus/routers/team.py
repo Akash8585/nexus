@@ -1,4 +1,5 @@
 import json
+import os
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
@@ -59,11 +60,16 @@ def invite_member(
         raise HTTPException(status_code=409, detail="User already exists")
 
     token = invitation_store.create(email, request_body.role.value, admin["id"])
-    print(f"Invite link: /signup?token={token}")
+    base_url = os.getenv("FRONTEND_URL", "http://localhost:3000").rstrip("/")
+    invite_link = f"{base_url}/signup?token={token}"
+    print(f"Invite link: {invite_link}")
     return {
-        "message": "Invitation sent",
+        "message": "Invitation created",
         "email": email,
         "role": request_body.role.value,
+        "invite_link": invite_link,
+        "token": token,
+        "expires_in": "48 hours",
     }
 
 

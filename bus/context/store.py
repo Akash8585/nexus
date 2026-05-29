@@ -73,6 +73,17 @@ class ContextStore:
         except RedisError as exc:
             raise RuntimeError(f"Failed to delete context for '{correlation_id}'") from exc
 
+    def flush_all(self) -> int:
+        client = self._client()
+
+        try:
+            keys = list(client.scan_iter("context/*"))
+            if not keys:
+                return 0
+            return int(client.delete(*keys))
+        except RedisError as exc:
+            raise RuntimeError("Failed to flush context store") from exc
+
     def disconnect(self) -> None:
         if self.client is not None:
             self.client.close()

@@ -6,6 +6,7 @@
   --panel: #1a1a1a;
   --muted: #8b949e;
   --accent: #00d992;
+  --sidebar-width: 220px;
 }
 
 @theme inline {

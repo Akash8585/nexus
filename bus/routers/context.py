@@ -31,12 +31,21 @@ def validate_api_key_or_jwt(authorization: str | None = Header(default=None)) ->
     return get_current_user(authorization)
 
 
+@router.delete("/flush-all")
+def flush_context_store(
+    admin: dict = Depends(require_admin),
+    store: ContextStore = Depends(get_context_store),
+) -> dict[str, int | str]:
+    deleted = store.flush_all()
+    return {"message": "All context data flushed", "deleted": deleted}
+
+
 @router.get("/{correlation_id}")
 def get_context(
     correlation_id: str,
     auth: dict = Depends(validate_api_key_or_jwt),
     store: ContextStore = Depends(get_context_store),
-) -> dict[str, dict[str, Any]]:
+) -> dict[str, Any]:
     return store.get_all(correlation_id)
 
 

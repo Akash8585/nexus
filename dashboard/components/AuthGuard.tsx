@@ -9,15 +9,25 @@ import { Spinner } from "@/components/ui/Spinner";
 
 export function AuthGuard({ children }: { children: ReactNode }) {
   const router = useRouter();
-  const [isAllowed] = useState(() => isAuthenticated());
+  const [status, setStatus] = useState<"checking" | "allowed" | "denied">(
+    "checking",
+  );
 
   useEffect(() => {
-    if (!isAllowed) {
+    const timeoutId = window.setTimeout(() => {
+      setStatus(isAuthenticated() ? "allowed" : "denied");
+    }, 0);
+
+    return () => window.clearTimeout(timeoutId);
+  }, []);
+
+  useEffect(() => {
+    if (status === "denied") {
       router.replace("/login");
     }
-  }, [isAllowed, router]);
+  }, [router, status]);
 
-  if (!isAllowed) {
+  if (status !== "allowed") {
     return (
       <div className="flex min-h-screen items-center justify-center bg-[#101010] text-[#f2f2f2]">
         <Spinner label="Checking access" />
