@@ -1,10 +1,10 @@
 from typing import Any
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from pydantic import BaseModel
 
-from auth.api_keys import validate_api_key
-from auth.jwt import require_admin
+from auth.api_keys import API_KEY_PREFIX, validate_api_key
+from auth.jwt import get_current_user, require_admin
 from context.store import ContextStore
 
 
@@ -12,7 +12,7 @@ router = APIRouter()
 
 
 class ContextValueRequest(BaseModel):
-    value: dict[str, Any]
+    value: Any
     ttl_hours: int = 24
 
 
@@ -20,10 +20,21 @@ def get_context_store(request: Request) -> ContextStore:
     return request.app.state.context_store
 
 
+def validate_api_key_or_jwt(authorization: str | None = Header(default=None)) -> dict:
+    if not authorization:
+        raise HTTPException(status_code=401, detail="Missing Authorization header")
+    scheme, _, token = authorization.partition(" ")
+    if scheme.lower() != "bearer" or not token:
+        raise HTTPException(status_code=401, detail="Invalid Authorization header")
+    if token.startswith(API_KEY_PREFIX):
+        return validate_api_key(authorization)
+    return get_current_user(authorization)
+
+
 @router.get("/{correlation_id}")
 def get_context(
     correlation_id: str,
-    api_key: dict = Depends(validate_api_key),
+    auth: dict = Depends(validate_api_key_or_jwt),
     store: ContextStore = Depends(get_context_store),
 ) -> dict[str, dict[str, Any]]:
     return store.get_all(correlation_id)
@@ -33,9 +44,9 @@ def get_context(
 def get_context_value(
     correlation_id: str,
     key: str,
-    api_key: dict = Depends(validate_api_key),
+    auth: dict = Depends(validate_api_key_or_jwt),
     store: ContextStore = Depends(get_context_store),
-) -> dict[str, Any] | None:
+) -> Any:
     return store.get(correlation_id, key)
 
 

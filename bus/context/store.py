@@ -22,7 +22,7 @@ class ContextStore:
         self,
         correlation_id: str,
         key: str,
-        value: dict[str, Any],
+        value: Any,
         ttl_hours: int = 24,
     ) -> None:
         client = self._client()
@@ -34,7 +34,7 @@ class ContextStore:
         except (RedisError, TypeError) as exc:
             raise RuntimeError(f"Failed to write context key '{redis_key}'") from exc
 
-    def get(self, correlation_id: str, key: str) -> dict[str, Any] | None:
+    def get(self, correlation_id: str, key: str) -> Any:
         client = self._client()
         redis_key = self._key(correlation_id, key)
 
@@ -46,10 +46,10 @@ class ContextStore:
         except (RedisError, json.JSONDecodeError) as exc:
             raise RuntimeError(f"Failed to read context key '{redis_key}'") from exc
 
-    def get_all(self, correlation_id: str) -> dict[str, dict[str, Any]]:
+    def get_all(self, correlation_id: str) -> dict[str, Any]:
         client = self._client()
         prefix = self._key(correlation_id, "")
-        result: dict[str, dict[str, Any]] = {}
+        result: dict[str, Any] = {}
 
         try:
             for redis_key in client.scan_iter(f"{prefix}*"):

@@ -1,0 +1,34 @@
+@import "tailwindcss";
+
+:root {
+  --background: #101010;
+  --foreground: #f2f2f2;
+  --panel: #1a1a1a;
+  --muted: #8b949e;
+  --accent: #00d992;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-panel: var(--panel);
+  --color-muted: var(--muted);
+  --color-accent: var(--accent);
+  --font-sans: "Geist", Arial, Helvetica, sans-serif;
+  --font-mono: "Geist Mono", Consolas, monospace;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+button,
+a {
+  outline-offset: 2px;
+}

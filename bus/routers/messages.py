@@ -1,11 +1,11 @@
 import json
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 from pydantic import BaseModel
 from redis import Redis
 
-from auth.api_keys import validate_api_key
+from auth.api_keys import API_KEY_PREFIX, validate_api_key
 from auth.jwt import get_current_user
 from kafka.producer import NexusProducer
 from kafka.topics import TopicManager
@@ -37,10 +37,21 @@ def get_topic_manager(request: Request) -> TopicManager:
     return request.app.state.topic_manager
 
 
+def validate_api_key_or_jwt(authorization: str | None = Header(default=None)) -> dict:
+    if not authorization:
+        raise HTTPException(status_code=401, detail="Missing Authorization header")
+    scheme, _, token = authorization.partition(" ")
+    if scheme.lower() != "bearer" or not token:
+        raise HTTPException(status_code=401, detail="Invalid Authorization header")
+    if token.startswith(API_KEY_PREFIX):
+        return validate_api_key(authorization)
+    return get_current_user(authorization)
+
+
 @router.post("/publish", response_model=NexusMessage)
 async def publish_message(
     request_body: MessagePublishRequest,
-    api_key: dict = Depends(validate_api_key),
+    auth: dict = Depends(validate_api_key_or_jwt),
     redis_client: Redis = Depends(get_redis),
     producer: NexusProducer = Depends(get_producer),
     topic_manager: TopicManager = Depends(get_topic_manager),
@@ -72,7 +83,7 @@ def list_messages(
     topic: str | None = Query(default=None),
     agent: str | None = Query(default=None),
     limit: int = Query(default=50, ge=1),
-    current_user: dict = Depends(get_current_user),
+    auth: dict = Depends(validate_api_key_or_jwt),
     redis_client: Redis = Depends(get_redis),
 ) -> list[NexusMessage]:
     messages: list[NexusMessage] = []
@@ -97,7 +108,7 @@ def list_messages(
 @router.get("/{message_id}", response_model=NexusMessage)
 def get_message(
     message_id: str,
-    current_user: dict = Depends(get_current_user),
+    auth: dict = Depends(validate_api_key_or_jwt),
     redis_client: Redis = Depends(get_redis),
 ) -> NexusMessage:
     raw_message = redis_client.get(f"messages:{message_id}")
