@@ -6,7 +6,7 @@ import type { ReactNode } from "react";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { TopNav } from "@/components/layout/TopNav";
 
-const publicRoutes = ["/", "/login", "/signup", "/setup"];
+const publicRoutes = ["/", "/login", "/signup"];
 
 export function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();

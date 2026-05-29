@@ -5,6 +5,7 @@ import {
   type ReactNode,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
   useState,
 } from "react";
@@ -18,13 +19,11 @@ type AuthContextValue = {
 const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [token, setTokenState] = useState<string | null>(() => {
-    if (typeof window === "undefined") {
-      return null;
-    }
+  const [token, setTokenState] = useState<string | null>(null);
 
-    return window.localStorage.getItem("nexus_token");
-  });
+  useEffect(() => {
+    setTokenState(window.localStorage.getItem("nexus_token"));
+  }, []);
 
   const setToken = useCallback((nextToken: string | null) => {
     setTokenState(nextToken);

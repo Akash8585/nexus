@@ -107,7 +107,7 @@ export function TopBar() {
 
       pollStatus();
       intervalId = window.setInterval(pollStatus, 30000);
-    }, 0);
+    }, 1000);
 
     return () => {
       cancelled = true;
