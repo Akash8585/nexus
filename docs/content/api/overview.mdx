@@ -1,0 +1,160 @@
+---
+title: API Overview
+description: Base URL, authentication, response format, and full endpoint reference for the Nexus Bus API.
+---
+
+# API Overview
+
+The Nexus Bus exposes a REST API for agents, messages, pipelines, and dashboard operations. All versioned routes live under a single base URL.
+
+**Base URL:** `http://localhost:8000/api/v1`
+
+<Note>
+Use `GET http://localhost:8000/health` to verify the bus is running. It returns `{ "status": "ok", "service": "nexus-bus", "version": "1.0.0" }` and requires no authentication.
+</Note>
+
+## Authentication
+
+Nexus supports two credential types, both sent as Bearer tokens in the `Authorization` header.
+
+| Client | Credential | Header |
+| --- | --- | --- |
+| Dashboard / humans | JWT (from login or signup) | `Authorization: Bearer <jwt>` |
+| Agents / SDK | API key (`nxs_live_sk_…`) | `Authorization: Bearer <api_key>` |
+
+### JWT sessions
+
+Obtain a JWT via `POST /api/v1/auth/login` or `POST /api/v1/auth/signup`. Tokens expire after 24 hours by default (configurable via `JWT_EXPIRY_HOURS`). Logout blacklists the token in Redis until it expires.
+
+### API keys
+
+Generate keys with `POST /api/v1/keys` (admin only). The plain key is returned **once** at creation. Keys are stored hashed; revoked keys return `401`.
+
+<Warning>
+Never commit API keys or JWTs to source control. Rotate keys immediately if exposed.
+</Warning>
+
+Some endpoints accept **either** JWT or API key (messages read/publish, context read). Write operations on context require API key only. Admin-only routes require a JWT with `role: "admin"`.
+
+## Response format
+
+Successful responses return JSON with the appropriate HTTP status (`200` for most operations, occasionally `201`-style semantics are still `200` in FastAPI).
+
+Error responses follow FastAPI's standard shape:
+
+```json
+{
+  "detail": "Human-readable error message"
+}
+```
+
+Validation errors (`422`) return a structured `detail` array describing each invalid field.
+
+## Endpoint reference
+
+### Authentication
+
+| Method | Path | Auth | Description |
+| --- | --- | --- | --- |
+| `POST` | `/auth/signup` | None | Create account (first user becomes admin) |
+| `POST` | `/auth/login` | None | Log in and receive JWT |
+| `POST` | `/auth/logout` | JWT | Invalidate current session token |
+| `GET` | `/auth/me` | JWT | Get current user profile |
+
+### Agents
+
+| Method | Path | Auth | Description |
+| --- | --- | --- | --- |
+| `POST` | `/agents/register` | API key | Register a new agent |
+| `GET` | `/agents` | JWT | List agents (optional `?status=`) |
+| `GET` | `/agents/{name}` | JWT | Get one agent |
+| `POST` | `/agents/{name}/heartbeat` | API key | Send agent heartbeat |
+| `DELETE` | `/agents/{name}` | Admin JWT | Deregister an agent |
+
+### Messages
+
+| Method | Path | Auth | Description |
+| --- | --- | --- | --- |
+| `POST` | `/messages/publish` | API key or JWT | Publish a message to a topic |
+| `GET` | `/messages` | API key or JWT | List messages (`?topic=`, `?agent=`, `?limit=`) |
+| `GET` | `/messages/{message_id}` | API key or JWT | Get one message by ID |
+
+### Topics
+
+| Method | Path | Auth | Description |
+| --- | --- | --- | --- |
+| `GET` | `/topics` | JWT | List Kafka topics with stats |
+| `POST` | `/topics` | Admin JWT | Create a new topic |
+| `DELETE` | `/topics/{name}` | Admin JWT | Delete a topic |
+
+### Context
+
+| Method | Path | Auth | Description |
+| --- | --- | --- | --- |
+| `GET` | `/context/{correlation_id}` | API key or JWT | Get all context keys for a run |
+| `GET` | `/context/{correlation_id}/{key}` | API key or JWT | Get one context value |
+| `PUT` | `/context/{correlation_id}/{key}` | API key | Set a context value |
+| `DELETE` | `/context/{correlation_id}` | Admin JWT | Delete all context for a run |
+| `DELETE` | `/context/flush-all` | Admin JWT | Delete all context data |
+
+### Pipelines
+
+| Method | Path | Auth | Description |
+| --- | --- | --- | --- |
+| `POST` | `/pipelines/start` | API key | Start a pipeline run |
+| `GET` | `/pipelines` | JWT | List runs (`?status=`, `?limit=`) |
+| `GET` | `/pipelines/{correlation_id}` | JWT | Get one run |
+| `POST` | `/pipelines/{correlation_id}/complete` | API key | Mark run completed or failed |
+| `POST` | `/pipelines/{correlation_id}/rerun` | Admin JWT | Start a new run from an existing trigger |
+
+### Dead letter queue
+
+| Method | Path | Auth | Description |
+| --- | --- | --- | --- |
+| `GET` | `/deadletter` | JWT | List failed messages |
+| `GET` | `/deadletter/{message_id}` | JWT | Get one dead-letter entry |
+| `POST` | `/deadletter/{message_id}/retry` | Admin JWT | Republish a failed message |
+| `DELETE` | `/deadletter/{message_id}` | Admin JWT | Discard a dead-letter entry |
+
+### API keys
+
+| Method | Path | Auth | Description |
+| --- | --- | --- | --- |
+| `GET` | `/keys` | Admin JWT | List API keys (no plain key) |
+| `POST` | `/keys` | Admin JWT | Create a new API key |
+| `DELETE` | `/keys/{key_id}` | Admin JWT | Revoke an API key |
+
+### Team
+
+| Method | Path | Auth | Description |
+| --- | --- | --- | --- |
+| `GET` | `/team` | Admin JWT | List team members |
+| `POST` | `/team/invite` | Admin JWT | Invite a user by email |
+| `PATCH` | `/team/{user_id}/role` | Admin JWT | Change a member's role |
+| `DELETE` | `/team/{user_id}` | Admin JWT | Remove a team member |
+| `POST` | `/team/resend-invite` | Admin JWT | Resend invitation email |
+
+### WebSocket
+
+| Protocol | Path | Auth | Description |
+| --- | --- | --- | --- |
+| `WS` | `/ws/live?token=<jwt>` | JWT (query param) | Real-time dashboard event stream |
+
+## Common error codes
+
+| Status | Meaning |
+| --- | --- |
+| `400` | Bad request (invalid input, missing topic, etc.) |
+| `401` | Missing, invalid, expired, or revoked credentials |
+| `403` | Authenticated but insufficient permissions (non-admin, protected resource) |
+| `404` | Resource not found |
+| `409` | Conflict (duplicate agent, topic, or user) |
+| `422` | Request body or query validation failed |
+| `429` | Rate limited (login brute-force protection) |
+| `503` | Service unavailable (e.g. Kafka unreachable) |
+
+## Next steps
+
+- **[Authentication](/api/auth)** — Sign up, log in, and manage sessions
+- **[Agents](/api/agents)** — Register agents and send heartbeats
+- **[WebSocket](/api/websocket)** — Subscribe to live bus events

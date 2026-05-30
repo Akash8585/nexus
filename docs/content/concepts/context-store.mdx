@@ -1,0 +1,159 @@
+---
+title: Context Store
+description: Shared pipeline memory in Redis — keys, correlation IDs, TTL, and the signal-plus-context pattern.
+---
+
+## What is the context store?
+
+The **context store** is a Redis-backed key-value store where agents read and write shared data for a pipeline run. Instead of embedding large payloads in every [message](/concepts/messages), agents pass lightweight signals on topics and store bulky data in context.
+
+<Info>
+  Context keys are scoped by **correlation ID**. Every agent in the same pipeline run reads and writes under the same namespace.
+</Info>
+
+## The signal-plus-context pattern
+
+The recommended pattern for multi-agent pipelines:
+
+1. **Write** large data to context with `agent.context.set()`
+2. **Publish** a small status message to the next topic
+3. **Read** context in the downstream agent with `agent.context.get()`
+
+Demo pipeline example:
+
+```
+Scout     writes context/run_abc/raw_headlines
+Scout     publishes {"status": "research_complete"} → nexus.research
+
+Analyst   reads  context/run_abc/raw_headlines
+Analyst   writes context/run_abc/top5_stories
+Analyst   publishes {"status": "analysis_complete"} → nexus.analysis
+
+Writer    reads  context/run_abc/top5_stories
+Writer    writes context/run_abc/final_briefing
+Writer    publishes {"status": "writing_complete"} → nexus.writing
+```
+
+<Tip>
+  Name context keys after what they contain (`raw_headlines`, `top5_stories`, `final_briefing`) — not after the agent that wrote them. Downstream agents should not need to know who produced the data.
+</Tip>
+
+## Keys and correlation IDs
+
+Context is stored at:
+
+```
+context/{correlation_id}/{key}
+```
+
+Example keys for one run:
+
+```
+context/run_1780068737_a286ob/raw_headlines
+context/run_1780068737_a286ob/top5_stories
+context/run_1780068737_a286ob/final_briefing
+context/run_1780068737_a286ob/delivery_status
+```
+
+## Python get/set examples
+
+```python
+from nexus_bus import NexusAgent
+
+agent = NexusAgent(
+    name="analyst-agent",
+    agent_type="analyst",
+    subscribe_topic="nexus.research",
+    nexus_url="http://localhost:8000",
+    api_key="nxs_live_sk_your_key_here",
+)
+
+@agent.on_message
+def handle(message):
+    correlation_id = message["correlation_id"]
+
+    # Read upstream data
+    headlines = agent.context.get(correlation_id, "raw_headlines")
+    if headlines is None:
+        return
+
+    top5 = rank_stories(headlines)
+
+    # Write for downstream agents (default TTL: 24 hours)
+    agent.context.set(correlation_id, "top5_stories", top5)
+
+    # Optional: custom TTL for short-lived data
+    agent.context.set(
+        correlation_id,
+        "analysis_metadata",
+        {"model": "llama-3.3-70b-versatile", "ranked_at": "2026-05-30T08:00:00Z"},
+        ttl_hours=6,
+    )
+
+    # Read all keys for debugging
+    all_context = agent.context.get_all(correlation_id)
+
+    agent.publish(
+        "nexus.analysis",
+        {"story_count": len(top5), "status": "analysis_complete"},
+        correlation_id,
+    )
+
+agent.start()
+```
+
+## TTL
+
+Context values expire automatically to prevent unbounded Redis growth.
+
+| Setting | Default | How to change |
+| --- | --- | --- |
+| Per-key TTL | **24 hours** | Pass `ttl_hours` to `agent.context.set()` |
+| Global default | 24 hours | Dashboard **Settings → Context store** |
+
+<Warning>
+  Admins can flush all context from **Settings** (destructive — dev/test only). Do not rely on context as long-term storage. Export important results to your own database or file store.
+</Warning>
+
+<Note>
+  Message history in Redis also expires after 7 days. Context and messages are independent TTLs — a message may outlive its context keys if you set a shorter TTL.
+</Note>
+
+## Messages vs context
+
+| | Messages | Context store |
+| --- | --- | --- |
+| **Purpose** | Signal that work is done; trigger next agent | Store large or structured pipeline data |
+| **Size** | Max 1 MB (keep under 4 KB) | Much larger values supported |
+| **Routing** | Kafka topic determines who receives it | Keyed by `correlation_id` — any agent can read |
+| **Persistence** | Kafka disk + Redis (7 days) | Redis (default 24 hours) |
+| **Pattern** | `agent.publish(topic, payload, correlation_id)` | `agent.context.set(correlation_id, key, value)` |
+| **Read** | `on_message` handler | `agent.context.get(correlation_id, key)` |
+
+## REST API
+
+| Method | Endpoint | Auth | Description |
+| --- | --- | --- | --- |
+| GET | `/api/v1/context/{correlation_id}` | API key or JWT | All keys for a run |
+| GET | `/api/v1/context/{correlation_id}/{key}` | API key or JWT | One value |
+| PUT | `/api/v1/context/{correlation_id}/{key}` | API key | Write a value |
+
+Write body:
+
+```json
+{
+  "value": { "content": "..." },
+  "ttl_hours": 24
+}
+```
+
+## Dashboard
+
+Open a pipeline run in **Pipelines → [correlation ID]** to view all context keys, inspect values, and replay messages step by step.
+
+## Next steps
+
+- [Pipelines](/concepts/pipelines) — how runs are tracked end to end
+- [Messages](/concepts/messages) — lightweight signals on topics
+- [Python SDK](/sdk/python) — `ContextClient` reference
+- [JavaScript SDK](/sdk/javascript) — `agent.context.get()` / `set()` in TypeScript

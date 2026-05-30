@@ -1,0 +1,215 @@
+---
+title: Authentication
+description: Signup, login, logout, and current-user endpoints for Nexus dashboard sessions.
+---
+
+# Authentication
+
+Base URL: `http://localhost:8000/api/v1/auth`
+
+Human users authenticate with email and password. Successful signup or login returns a JWT used for dashboard and admin operations.
+
+<Note>
+The **first user** to sign up on a fresh Nexus instance automatically receives the `admin` role. Subsequent signups require an invitation token unless an admin invites them first.
+</Note>
+
+## POST `/auth/signup`
+
+Create a new user account and receive a JWT.
+
+**Auth required:** No
+
+### Request
+
+```json
+{
+  "name": "Admin User",
+  "email": "admin@example.com",
+  "password": "securepassword123"
+}
+```
+
+Optional query parameter: `?token=<invitation_token>` to sign up via an admin invitation (assigns the invited role).
+
+### Response
+
+`200 OK`
+
+```json
+{
+  "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "token_type": "bearer",
+  "user": {
+    "id": "user_a1b2c3d4e5f6",
+    "name": "Admin User",
+    "email": "admin@example.com",
+    "role": "admin",
+    "status": "active",
+    "created_at": "2026-05-30T12:00:00.000Z",
+    "last_login": null
+  }
+}
+```
+
+### cURL
+
+```bash
+curl -X POST http://localhost:8000/api/v1/auth/signup \
+  -H "Content-Type: application/json" \
+  -d '{"name":"Admin User","email":"admin@example.com","password":"securepassword123"}'
+```
+
+### Error codes
+
+| Status | Detail | Cause |
+| --- | --- | --- |
+| `400` | `Invalid or expired invitation` | Invitation token in query is invalid |
+| `403` | `Nexus already has an admin. Ask your admin to invite you.` | Non-first signup without invitation |
+| `409` | Email already registered | Duplicate email (from user store) |
+| `422` | Validation error | Missing or invalid fields |
+
+---
+
+## POST `/auth/login`
+
+Authenticate with email and password.
+
+**Auth required:** No
+
+### Request
+
+```json
+{
+  "email": "admin@example.com",
+  "password": "securepassword123"
+}
+```
+
+### Response
+
+`200 OK`
+
+```json
+{
+  "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "token_type": "bearer",
+  "user": {
+    "id": "user_a1b2c3d4e5f6",
+    "name": "Admin User",
+    "email": "admin@example.com",
+    "role": "admin",
+    "status": "active",
+    "created_at": "2026-05-30T12:00:00.000Z",
+    "last_login": "2026-05-30T14:30:00.000Z"
+  }
+}
+```
+
+### cURL
+
+```bash
+curl -X POST http://localhost:8000/api/v1/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"admin@example.com","password":"securepassword123"}'
+```
+
+### Error codes
+
+| Status | Detail | Cause |
+| --- | --- | --- |
+| `401` | `Invalid email or password` | Wrong credentials |
+| `429` | `Too many failed attempts. Try again in 15 minutes.` | More than 5 failed attempts for this email |
+| `422` | Validation error | Missing email or password |
+
+<Warning>
+After five failed login attempts for the same email, the account is locked for 15 minutes.
+</Warning>
+
+---
+
+## POST `/auth/logout`
+
+Invalidate the current JWT by adding it to a Redis blacklist until it expires.
+
+**Auth required:** Bearer JWT
+
+### Request
+
+No body.
+
+### Response
+
+`200 OK`
+
+```json
+{
+  "message": "Logged out successfully"
+}
+```
+
+### cURL
+
+```bash
+curl -X POST http://localhost:8000/api/v1/auth/logout \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+```
+
+### Error codes
+
+| Status | Detail | Cause |
+| --- | --- | --- |
+| `401` | `Missing Authorization header` | No header provided |
+| `401` | `Invalid Authorization header` | Malformed Bearer token |
+| `401` | `Token has expired` | JWT expired |
+| `401` | `Token has been revoked` | Token already logged out |
+| `401` | `User not found` | User deleted after token issued |
+
+---
+
+## GET `/auth/me`
+
+Return the authenticated user's profile.
+
+**Auth required:** Bearer JWT
+
+### Request
+
+No body.
+
+### Response
+
+`200 OK`
+
+```json
+{
+  "id": "user_a1b2c3d4e5f6",
+  "name": "Admin User",
+  "email": "admin@example.com",
+  "role": "admin",
+  "status": "active",
+  "created_at": "2026-05-30T12:00:00.000Z",
+  "last_login": "2026-05-30T14:30:00.000Z"
+}
+```
+
+### cURL
+
+```bash
+curl http://localhost:8000/api/v1/auth/me \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+```
+
+### Error codes
+
+| Status | Detail | Cause |
+| --- | --- | --- |
+| `401` | `Missing Authorization header` | No header provided |
+| `401` | `Invalid token` | JWT signature invalid |
+| `401` | `Token has expired` | JWT expired |
+| `401` | `Token has been revoked` | Token blacklisted after logout |
+
+## Next steps
+
+- **[API Keys](/api/keys)** — Create keys for agent and SDK authentication
+- **[Team](/api/team)** — Invite additional dashboard users
+- **[Agents](/api/agents)** — Register agents that use API keys

@@ -1,0 +1,145 @@
+---
+title: Agents
+description: Agent lifecycle, types, and stateless design on the Nexus coordination bus.
+---
+
+## What is an agent?
+
+An **agent** is any program that connects to Nexus to publish messages, consume messages, and read or write shared pipeline context. Agents do not call each other directly — they communicate only through the bus.
+
+In the demo pipeline:
+
+- **Scout** (`researcher`) — gathers headlines and publishes to `nexus.research`
+- **Analyst** (`analyst`) — ranks stories and publishes to `nexus.analysis`
+- **Writer** (`writer`) — drafts the briefing and publishes to `nexus.writing`
+- **Deliverer** (`publisher`) — saves output and publishes to `nexus.delivery`
+
+<Info>
+  Every agent has a unique `name`, an `agent_type` label, and one `subscribe_topic`. The SDK handles registration, heartbeats, and message polling automatically when you call `start()`.
+</Info>
+
+## Agent lifecycle
+
+Agents move through a predictable lifecycle from startup to shutdown:
+
+```
+Create → Register → Heartbeat → Consume → Publish → Deregister
+```
+
+| Phase | What happens | SDK method |
+| --- | --- | --- |
+| **Create** | Instantiate `NexusAgent` with name, type, topic, URL, and API key | `NexusAgent(...)` |
+| **Register** | Agent appears in the registry; dashboard shows `agent.registered` | `register()` or `start()` |
+| **Heartbeat** | Alive signal every 10 seconds; missing for 30s marks agent **dead** | Automatic in `start()` |
+| **Consume** | Poll subscribed topic for new messages; invoke your handler | `on_message()` + `start()` |
+| **Publish** | Send a lightweight signal to the next topic in the pipeline | `publish()` |
+| **Deregister** | Clean removal from registry on shutdown | `stop()` or `close()` |
+
+<Note>
+  You can call `register()` manually before `start()`, but most applications only need `start()` — it registers, starts the heartbeat loop, and begins consuming in one call.
+</Note>
+
+## Agent types
+
+`agent_type` is a free-form label Nexus uses for filtering, topology, and dashboard display. It does not change routing — routing is determined by **topics**.
+
+| Type | Typical role | Subscribes to | Publishes to |
+| --- | --- | --- | --- |
+| `researcher` | Gather raw input | `nexus.research` | `nexus.research` |
+| `analyst` | Transform or rank data | `nexus.research` | `nexus.analysis` |
+| `writer` | Generate content | `nexus.analysis` | `nexus.writing` |
+| `publisher` | Deliver final output | `nexus.writing` | `nexus.delivery` |
+| `custom` | Any domain-specific step | Your topic | Your topic |
+
+<Tip>
+  Use descriptive `agent_type` values that match your pipeline stage. Multiple agents can share a type (e.g. three `writer` agents load-balance via Kafka consumer groups).
+</Tip>
+
+## Agent status
+
+Nexus tracks every registered agent in real time:
+
+| Status | Meaning |
+| --- | --- |
+| `active` | Heartbeat received recently; agent is running |
+| `idle` | Registered and waiting for messages |
+| `dead` | No heartbeat for 30+ seconds |
+| `deregistered` | Agent called `stop()` or was removed by an admin |
+
+View agents in the dashboard under **Agents**, or query `GET /api/v1/agents`.
+
+## Stateless design
+
+Agents should be **stateless** — they do not store pipeline data in local memory between runs. All shared data lives in the [context store](/concepts/context-store), keyed by `correlation_id`. Messages carry only lightweight signals (status, counts, metadata).
+
+This pattern gives you:
+
+- **Horizontal scaling** — spin up multiple agents of the same type; Kafka distributes work
+- **Crash recovery** — restart an agent; it reads context and resumes from the last message
+- **Replay** — re-run a pipeline from the dashboard without re-sending large payloads
+
+<Warning>
+  Do not embed large payloads (headlines, drafts, files) in message bodies. Store them in context with `agent.context.set()` and pass a status signal in the message instead.
+</Warning>
+
+## Code example
+
+A stateless analyst agent that reads headlines from context, ranks them, writes results back, and publishes a completion signal:
+
+```python
+from nexus_bus import NexusAgent
+
+agent = NexusAgent(
+    name="analyst-agent",
+    agent_type="analyst",
+    subscribe_topic="nexus.research",
+    nexus_url="http://localhost:8000",
+    api_key="nxs_live_sk_your_key_here",
+)
+
+@agent.on_message
+def handle(message):
+    correlation_id = message["correlation_id"]
+
+    # Read shared data — agent holds no local pipeline state
+    headlines = agent.context.get(correlation_id, "raw_headlines")
+    if not headlines:
+        return
+
+    top5 = rank_stories(headlines)  # your LLM or business logic
+
+    # Write result for the next agent
+    agent.context.set(correlation_id, "top5_stories", top5)
+
+    # Publish a lightweight signal only
+    agent.publish(
+        "nexus.analysis",
+        {"story_count": len(top5), "status": "analysis_complete"},
+        correlation_id,
+    )
+
+agent.start()
+```
+
+The Writer agent later reads `top5_stories` from context using the same `correlation_id` — no direct coupling between Scout and Writer.
+
+## Registration API
+
+When an agent registers, Nexus records:
+
+```json
+{
+  "name": "analyst-agent",
+  "agent_type": "analyst",
+  "subscribe_topics": ["nexus.research"]
+}
+```
+
+Registration requires a valid API key. Nexus broadcasts an `agent.registered` WebSocket event to the dashboard.
+
+## Next steps
+
+- [Messages](/concepts/messages) — what agents send and receive on topics
+- [Context store](/concepts/context-store) — where agents share pipeline memory
+- [Python SDK](/sdk/python) — full `NexusAgent` reference
+- [JavaScript SDK](/sdk/javascript) — TypeScript equivalent

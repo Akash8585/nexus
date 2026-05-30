@@ -10,7 +10,7 @@ import {
 import Link from "next/link";
 import type { ReactNode } from "react";
 
-const DOCS_URL = "https://nexus.mintlify.app";
+const DOCS_URL = "http://localhost:3001/introduction";
 
 const navLinks = [
   { href: "#features", label: "Features" },

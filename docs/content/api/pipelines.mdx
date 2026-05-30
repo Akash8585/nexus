@@ -1,0 +1,262 @@
+---
+title: Pipelines
+description: Start, complete, list, and rerun pipeline executions tracked by correlation ID.
+---
+
+# Pipelines
+
+Base URL: `http://localhost:8000/api/v1/pipelines`
+
+Pipeline runs group messages and agent activity under a shared `correlation_id`. Runs are stored in Redis and broadcast lifecycle events over WebSocket.
+
+<Note>
+Starting or rerunning a pipeline **registers** a run in the tracker — it does not execute agents. Run `python demo/run.py "<trigger>"` (or your own orchestrator) to actually drive agent execution.
+</Note>
+
+## POST `/pipelines/start`
+
+Register a new pipeline run with status `running`.
+
+**Auth required:** Bearer API key
+
+### Request
+
+```json
+{
+  "correlation_id": "run_abc123",
+  "trigger_input": "Morning briefing on AI news"
+}
+```
+
+### Response
+
+`200 OK`
+
+```json
+{
+  "correlation_id": "run_abc123",
+  "trigger_input": "Morning briefing on AI news",
+  "status": "running",
+  "started_at": "2026-05-30T12:00:00.000Z",
+  "ended_at": null,
+  "duration_ms": null,
+  "message_count": 0,
+  "messages": [],
+  "agent_names": []
+}
+```
+
+Broadcasts a `pipeline.started` WebSocket event.
+
+### cURL
+
+```bash
+curl -X POST http://localhost:8000/api/v1/pipelines/start \
+  -H "Authorization: Bearer nxs_live_sk_abc123..." \
+  -H "Content-Type: application/json" \
+  -d '{"correlation_id":"run_abc123","trigger_input":"Morning briefing on AI news"}'
+```
+
+### Error codes
+
+| Status | Detail | Cause |
+| --- | --- | --- |
+| `401` | Invalid or missing API key | Not authenticated |
+| `422` | Validation error | Missing required fields |
+
+---
+
+## GET `/pipelines`
+
+List pipeline runs, newest first.
+
+**Auth required:** Bearer JWT
+
+### Query parameters
+
+| Parameter | Type | Default | Description |
+| --- | --- | --- | --- |
+| `status` | string | — | Filter by status: `running`, `completed`, `failed` |
+| `limit` | integer | `50` | Maximum results (minimum `1`) |
+
+Stale runs with no messages auto-fail after 5 minutes. Runs older than 120 minutes also auto-fail.
+
+### Response
+
+`200 OK`
+
+```json
+[
+  {
+    "correlation_id": "run_abc123",
+    "trigger_input": "Morning briefing on AI news",
+    "status": "completed",
+    "started_at": "2026-05-30T12:00:00.000Z",
+    "ended_at": "2026-05-30T12:05:00.000Z",
+    "duration_ms": 300000,
+    "message_count": 4,
+    "messages": ["msg_a", "msg_b", "msg_c", "msg_d"],
+    "agent_names": ["scout-agent", "writer-agent"]
+  }
+]
+```
+
+### cURL
+
+```bash
+curl "http://localhost:8000/api/v1/pipelines?status=running&limit=10" \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+```
+
+### Error codes
+
+| Status | Detail | Cause |
+| --- | --- | --- |
+| `401` | Missing or invalid JWT | Not authenticated |
+| `422` | Validation error | Invalid `limit` |
+
+---
+
+## GET `/pipelines/{correlation_id}`
+
+Get details for a single pipeline run.
+
+**Auth required:** Bearer JWT
+
+### Response
+
+`200 OK`
+
+```json
+{
+  "correlation_id": "run_abc123",
+  "trigger_input": "Morning briefing on AI news",
+  "status": "running",
+  "started_at": "2026-05-30T12:00:00.000Z",
+  "ended_at": null,
+  "duration_ms": null,
+  "message_count": 2,
+  "messages": ["msg_a", "msg_b"],
+  "agent_names": ["scout-agent"]
+}
+```
+
+Failed stale runs include a `failure_reason` field.
+
+### cURL
+
+```bash
+curl http://localhost:8000/api/v1/pipelines/run_abc123 \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+```
+
+### Error codes
+
+| Status | Detail | Cause |
+| --- | --- | --- |
+| `401` | Missing or invalid JWT | Not authenticated |
+| `404` | `Pipeline run 'run_xyz' not found` | Run does not exist |
+
+---
+
+## POST `/pipelines/{correlation_id}/complete`
+
+Mark a pipeline run as completed or failed.
+
+**Auth required:** Bearer API key
+
+### Request
+
+```json
+{
+  "status": "completed"
+}
+```
+
+`status` must be `"completed"` or `"failed"`. Defaults to `"completed"` if omitted.
+
+### Response
+
+`200 OK`
+
+```json
+{
+  "correlation_id": "run_abc123",
+  "trigger_input": "Morning briefing on AI news",
+  "status": "completed",
+  "started_at": "2026-05-30T12:00:00.000Z",
+  "ended_at": "2026-05-30T12:05:00.000Z",
+  "duration_ms": 300000,
+  "message_count": 4,
+  "messages": ["msg_a", "msg_b", "msg_c", "msg_d"],
+  "agent_names": ["scout-agent", "writer-agent"]
+}
+```
+
+Broadcasts `pipeline.completed` or `pipeline.failed` via WebSocket.
+
+### cURL
+
+```bash
+curl -X POST http://localhost:8000/api/v1/pipelines/run_abc123/complete \
+  -H "Authorization: Bearer nxs_live_sk_abc123..." \
+  -H "Content-Type: application/json" \
+  -d '{"status":"completed"}'
+```
+
+### Error codes
+
+| Status | Detail | Cause |
+| --- | --- | --- |
+| `401` | Invalid or missing API key | Not authenticated |
+| `404` | `Pipeline run 'run_xyz' not found` | Run does not exist |
+| `422` | Validation error | Invalid `status` value |
+
+---
+
+## POST `/pipelines/{correlation_id}/rerun`
+
+Create a **new** pipeline run using the same `trigger_input` as an existing run.
+
+**Auth required:** Admin JWT
+
+<Warning>
+Rerun only registers a new run with a fresh `correlation_id`. It does not re-execute agents automatically. Use the demo runner or your orchestrator to drive execution.
+</Warning>
+
+### Request
+
+No body.
+
+### Response
+
+`200 OK`
+
+```json
+{
+  "correlation_id": "run_f7e8d9c0b1a2"
+}
+```
+
+The new correlation ID is a freshly generated `run_{uuid}`.
+
+### cURL
+
+```bash
+curl -X POST http://localhost:8000/api/v1/pipelines/run_abc123/rerun \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+```
+
+### Error codes
+
+| Status | Detail | Cause |
+| --- | --- | --- |
+| `401` | Missing or invalid JWT | Not authenticated |
+| `403` | `Admin role required` | Non-admin user |
+| `404` | `Pipeline run 'run_xyz' not found` | Original run does not exist |
+
+## Next steps
+
+- **[Messages](/api/messages)** — Publish messages that update pipeline tracking
+- **[Context](/api/context)** — Store intermediate results per correlation ID
+- **[WebSocket](/api/websocket)** — Subscribe to `pipeline.started`, `pipeline.completed`, and `pipeline.failed`

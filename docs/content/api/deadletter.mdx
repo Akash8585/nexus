@@ -1,0 +1,190 @@
+---
+title: Dead Letter Queue
+description: List, inspect, retry, and discard failed messages in the dead letter queue.
+---
+
+# Dead Letter Queue
+
+Base URL: `http://localhost:8000/api/v1/deadletter`
+
+When message processing fails after retries, messages are routed to the dead letter queue (DLQ). Entries are stored in Redis and published to the `nexus.deadletter` Kafka topic.
+
+<Note>
+Retrying a dead-letter message republishes it to the original topic with the same payload and increments tracking. The DLQ entry is removed on successful retry.
+</Note>
+
+## GET `/deadletter`
+
+List all dead-letter entries, newest failures first.
+
+**Auth required:** Bearer JWT
+
+### Response
+
+`200 OK`
+
+```json
+[
+  {
+    "id": "msg_f1e2d3c4b5a6",
+    "original_message": {
+      "id": "msg_f1e2d3c4b5a6",
+      "correlation_id": "run_abc123",
+      "topic": "nexus.analysis",
+      "sender_agent": "analyst-agent",
+      "payload": { "status": "error" },
+      "timestamp": "2026-05-30T11:55:00.000Z",
+      "retry_count": 3
+    },
+    "original_topic": "nexus.analysis",
+    "error": "Agent timeout after 30s",
+    "retry_count": 3,
+    "failed_at": "2026-05-30T12:00:00.000Z"
+  }
+]
+```
+
+### cURL
+
+```bash
+curl http://localhost:8000/api/v1/deadletter \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+```
+
+### Error codes
+
+| Status | Detail | Cause |
+| --- | --- | --- |
+| `401` | Missing or invalid JWT | Not authenticated |
+
+---
+
+## GET `/deadletter/{message_id}`
+
+Get a single dead-letter entry by message ID.
+
+**Auth required:** Bearer JWT
+
+### Response
+
+`200 OK`
+
+```json
+{
+  "id": "msg_f1e2d3c4b5a6",
+  "original_message": {
+    "id": "msg_f1e2d3c4b5a6",
+    "correlation_id": "run_abc123",
+    "topic": "nexus.analysis",
+    "sender_agent": "analyst-agent",
+    "payload": { "status": "error" },
+    "timestamp": "2026-05-30T11:55:00.000Z",
+    "retry_count": 3
+  },
+  "original_topic": "nexus.analysis",
+  "error": "Agent timeout after 30s",
+  "retry_count": 3,
+  "failed_at": "2026-05-30T12:00:00.000Z"
+}
+```
+
+### cURL
+
+```bash
+curl http://localhost:8000/api/v1/deadletter/msg_f1e2d3c4b5a6 \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+```
+
+### Error codes
+
+| Status | Detail | Cause |
+| --- | --- | --- |
+| `401` | Missing or invalid JWT | Not authenticated |
+| `404` | `Dead letter message 'msg_xyz' not found` | Entry not in DLQ |
+
+---
+
+## POST `/deadletter/{message_id}/retry`
+
+Republish a failed message to its original topic and remove it from the DLQ.
+
+**Auth required:** Admin JWT
+
+### Request
+
+No body.
+
+### Response
+
+`200 OK`
+
+```json
+{
+  "message": "Dead letter message retried",
+  "new_message_id": "msg_a9b8c7d6e5f4"
+}
+```
+
+A new message ID is generated for the retried publish.
+
+### cURL
+
+```bash
+curl -X POST http://localhost:8000/api/v1/deadletter/msg_f1e2d3c4b5a6/retry \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+```
+
+### Error codes
+
+| Status | Detail | Cause |
+| --- | --- | --- |
+| `401` | Missing or invalid JWT | Not authenticated |
+| `403` | `Admin role required` | Non-admin user |
+| `404` | `Dead letter message 'msg_xyz' not found` | Entry not in DLQ |
+
+---
+
+## DELETE `/deadletter/{message_id}`
+
+Permanently discard a dead-letter entry without retrying.
+
+**Auth required:** Admin JWT
+
+<Warning>
+Discarding a message is irreversible. The original payload is removed from the DLQ and will not be republished.
+</Warning>
+
+### Request
+
+No body.
+
+### Response
+
+`200 OK`
+
+```json
+{
+  "message": "Dead letter message msg_f1e2d3c4b5a6 discarded"
+}
+```
+
+### cURL
+
+```bash
+curl -X DELETE http://localhost:8000/api/v1/deadletter/msg_f1e2d3c4b5a6 \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+```
+
+### Error codes
+
+| Status | Detail | Cause |
+| --- | --- | --- |
+| `401` | Missing or invalid JWT | Not authenticated |
+| `403` | `Admin role required` | Non-admin user |
+| `404` | `Dead letter message 'msg_xyz' not found` | Entry not in DLQ |
+
+## Next steps
+
+- **[Agents](/api/agents)** — View per-agent error counts
+- **[Messages](/api/messages)** — Inspect successfully published messages
+- **[Pipelines](/api/pipelines)** — Check if failed messages blocked pipeline completion

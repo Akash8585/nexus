@@ -1,0 +1,173 @@
+---
+title: WebSocket
+description: Real-time dashboard events via the Nexus live WebSocket endpoint.
+---
+
+# WebSocket
+
+The Nexus dashboard receives live bus events over a WebSocket connection. This endpoint is separate from the REST API and uses JWT authentication via query parameter.
+
+**URL:** `ws://localhost:8000/ws/live?token=<jwt>`
+
+<Note>
+Only JWT tokens are accepted — API keys cannot connect to the WebSocket. Obtain a JWT via `POST /api/v1/auth/login`.
+</Note>
+
+## Connection
+
+Connect with a valid JWT passed as the `token` query parameter:
+
+```
+ws://localhost:8000/ws/live?token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+```
+
+On successful connection, the server accepts the WebSocket and begins sending events. The server sends a keepalive ping every 30 seconds:
+
+```json
+{"event":"ping"}
+```
+
+The dashboard client ignores `ping` events.
+
+<Warning>
+If the token is missing or invalid, the server closes the connection immediately with WebSocket close code `1008` (policy violation). No error body is returned.
+</Warning>
+
+### cURL (connection test)
+
+WebSocket connections require a WebSocket client. Example using `websocat`:
+
+```bash
+websocat "ws://localhost:8000/ws/live?token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+```
+
+### Error codes
+
+| Condition | Behavior |
+| --- | --- |
+| Missing `token` query param | Connection closed with code `1008` |
+| Expired or invalid JWT | Connection closed with code `1008` |
+| Connection dropped | Client should reconnect (dashboard retries up to 10 times with 5s delay) |
+
+---
+
+## Event envelope
+
+All events (except raw ping) follow this structure:
+
+```json
+{
+  "event": "message.published",
+  "data": { },
+  "timestamp": "2026-05-30T12:00:00.000Z"
+}
+```
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `event` | string | Event type identifier |
+| `data` | object | Event-specific payload |
+| `timestamp` | string | ISO 8601 UTC timestamp |
+
+---
+
+## Event types
+
+| Event | Data shape | When fired |
+| --- | --- | --- |
+| `message.published` | Full `NexusMessage` object | A message is published to the bus |
+| `agent.registered` | Full `Agent` object | An agent registers via API |
+| `agent.heartbeat` | `{ "name": string, "timestamp": string }` | An agent sends a heartbeat |
+| `agent.dead` | `{ "name": string }` | Heartbeat monitor marks agent as dead |
+| `pipeline.started` | `{ "correlation_id": string, "trigger_input": string }` | A pipeline run starts |
+| `pipeline.completed` | Full pipeline run object | A pipeline completes successfully |
+| `pipeline.failed` | Full pipeline run object | A pipeline fails or times out |
+| `ping` | — | Keepalive every 30 seconds (no `data` or `timestamp`) |
+
+---
+
+## Example: message.published
+
+```json
+{
+  "event": "message.published",
+  "data": {
+    "id": "msg_f1e2d3c4b5a6",
+    "correlation_id": "run_abc123",
+    "topic": "nexus.research",
+    "sender_agent": "scout-agent",
+    "payload": {
+      "status": "research_done",
+      "story_count": 10
+    },
+    "timestamp": "2026-05-30T12:00:00.000Z",
+    "retry_count": 0
+  },
+  "timestamp": "2026-05-30T12:00:00.000Z"
+}
+```
+
+---
+
+## Example: agent.heartbeat
+
+```json
+{
+  "event": "agent.heartbeat",
+  "data": {
+    "name": "scout-agent",
+    "timestamp": "2026-05-30T12:05:30.123456+00:00"
+  },
+  "timestamp": "2026-05-30T12:05:30.123456+00:00"
+}
+```
+
+---
+
+## Example: pipeline.completed
+
+```json
+{
+  "event": "pipeline.completed",
+  "data": {
+    "correlation_id": "run_abc123",
+    "trigger_input": "Morning briefing on AI news",
+    "status": "completed",
+    "started_at": "2026-05-30T12:00:00.000Z",
+    "ended_at": "2026-05-30T12:05:00.000Z",
+    "duration_ms": 300000,
+    "message_count": 4,
+    "messages": ["msg_a", "msg_b", "msg_c", "msg_d"],
+    "agent_names": ["scout-agent", "writer-agent"]
+  },
+  "timestamp": "2026-05-30T12:05:00.000Z"
+}
+```
+
+---
+
+## Reconnection
+
+The Nexus dashboard maintains a single shared WebSocket connection. On disconnect, it automatically reconnects up to 10 times with a 5-second delay between attempts. The top bar shows **Live** (connected) or **Reconnecting (n/10)** (disconnected).
+
+## Health check
+
+Verify the bus is running before connecting:
+
+```bash
+curl http://localhost:8000/health
+```
+
+```json
+{
+  "status": "ok",
+  "service": "nexus-bus",
+  "version": "1.0.0"
+}
+```
+
+## Next steps
+
+- **[Messages](/api/messages)** — REST endpoint that triggers `message.published`
+- **[Agents](/api/agents)** — Registration and heartbeats that trigger agent events
+- **[Pipelines](/api/pipelines)** — Pipeline lifecycle that triggers pipeline events

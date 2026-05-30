@@ -1,0 +1,124 @@
+---
+title: Topics
+description: Kafka-backed channels, default Nexus topics, custom topics, and naming conventions.
+---
+
+## What is a topic?
+
+A **topic** is a named Kafka channel. Agents **publish** messages to a topic; other agents **subscribe** to that topic to receive them.
+
+Topics decouple agents: the Scout does not need to know the Analyst exists — it only publishes to `nexus.research`. The Analyst subscribes to the same topic independently.
+
+<Info>
+  One agent subscribes to one topic via the SDK (`subscribe_topic`). Agents can publish to any topic that exists on the bus.
+</Info>
+
+## Default topics
+
+Nexus creates these six topics on startup:
+
+| Topic | Purpose | Used by |
+| --- | --- | --- |
+| `nexus.research` | Raw research and headlines | Scout → Analyst |
+| `nexus.analysis` | Ranked analysis and scored stories | Analyst → Writer |
+| `nexus.writing` | Draft content and writing status | Writer → Deliverer |
+| `nexus.delivery` | Delivery confirmation and final output | Deliverer |
+| `nexus.deadletter` | Failed messages after 3 retry attempts | System / admins |
+| `nexus.heartbeat` | System heartbeat events | Nexus internal |
+
+<Warning>
+  Default topics **cannot be deleted** from the dashboard. They are required for the demo pipeline and core bus operations.
+</Warning>
+
+## Demo pipeline flow
+
+```
+Scout        → nexus.research
+Analyst      → nexus.analysis
+Writer       → nexus.writing
+Deliverer    → nexus.delivery
+```
+
+Each arrow is a message publish. Large data (headlines, drafts) travels through the [context store](/concepts/context-store), not through topic payloads.
+
+## Custom topics
+
+Admins can create additional topics from the dashboard or API:
+
+```
+POST /api/v1/topics
+```
+
+```json
+{
+  "name": "nexus.review",
+  "partitions": 1,
+  "retention_days": 7
+}
+```
+
+| Field | Description |
+| --- | --- |
+| `name` | Topic name — must start with `nexus.` |
+| `partitions` | Kafka partition count (default `1`) |
+| `retention_days` | How long messages are kept (default `7`) |
+
+List all topics:
+
+```
+GET /api/v1/topics
+```
+
+The dashboard **Topics** page shows partition count, message count, and payload size aggregated from Redis.
+
+<Tip>
+  Start with one partition per custom topic. Increase partitions only when you need parallel consumption at scale.
+</Tip>
+
+## Naming convention
+
+All Nexus topics **must** use the `nexus.<stage>` pattern:
+
+| Pattern | Example | When to use |
+| --- | --- | --- |
+| `nexus.<verb>` | `nexus.research`, `nexus.writing` | Pipeline stages |
+| `nexus.<noun>` | `nexus.delivery`, `nexus.deadletter` | System or output channels |
+| `nexus.<domain>.<stage>` | `nexus.support.triage` | Multi-domain deployments |
+
+Examples for custom pipelines:
+
+- `nexus.ingest` — raw input from external sources
+- `nexus.review` — human or QA approval step
+- `nexus.notify` — outbound notifications and webhooks
+
+<Note>
+  The `nexus.` prefix keeps topics identifiable in Kafka UI, dashboard filters, and log output. Avoid generic names like `events` or `queue`.
+</Note>
+
+## Subscribing in the SDK
+
+```python
+from nexus_bus import NexusAgent
+
+agent = NexusAgent(
+    name="writer-agent",
+    agent_type="writer",
+    subscribe_topic="nexus.analysis",  # listen here
+    nexus_url="http://localhost:8000",
+    api_key="nxs_live_sk_your_key_here",
+)
+
+@agent.on_message
+def handle(message):
+    # publish to a different topic when done
+    agent.publish("nexus.writing", {"status": "writing_complete"}, message["correlation_id"])
+
+agent.start()
+```
+
+## Next steps
+
+- [Messages](/concepts/messages) — what travels on topics
+- [Agents](/concepts/agents) — how agents register and subscribe
+- [Pipelines](/concepts/pipelines) — end-to-end pipeline runs
+- [Python SDK](/sdk/python) — `subscribe_topic` and `publish()` reference

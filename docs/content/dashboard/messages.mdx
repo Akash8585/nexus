@@ -1,0 +1,101 @@
+---
+title: Messages
+description: Real-time message feed with topic, agent, and correlation ID filters.
+---
+
+The **Messages** page is a live feed of every message published through Nexus. It connects to the WebSocket server and appends new messages as agents publish — no manual refresh required.
+
+<Screenshot caption="Live Messages feed showing topic badges, sender agents, and correlation IDs" />
+
+## What it shows
+
+Each row in the feed displays:
+
+| Field | Description |
+| --- | --- |
+| **Timestamp** | When the message was published (relative time, e.g. "3s ago") |
+| **Topic** | Kafka topic (color-coded badge) |
+| **Sender** | Agent name that published the message |
+| **Correlation ID** | Pipeline run identifier — click to open Pipeline Detail |
+| **Payload preview** | Truncated JSON of the message body |
+
+Messages are stored in Redis with a **7-day TTL** by default. The feed shows the most recent messages first.
+
+<Info>
+  The WebSocket indicator in the top bar must be green for live updates. If disconnected, the page falls back to polling every few seconds.
+</Info>
+
+## Filters
+
+Use the filter bar at the top of the page to narrow the feed:
+
+| Filter | Options | Use case |
+| --- | --- | --- |
+| **Topic** | All topics or a specific `nexus.*` topic | Watch one pipeline stage |
+| **Agent** | All agents or a specific sender | Debug one agent's output |
+| **Search** | Free-text on correlation ID or payload | Find a specific run |
+
+<Tip>
+  Filter by correlation ID to see the complete message trail for one pipeline run without opening Pipeline Detail.
+</Tip>
+
+### Example: watch the support pipeline
+
+1. Set **Topic** to `nexus.support.intake`
+2. Trigger a support run (see [Build a pipeline](/guides/build-a-pipeline))
+3. Watch `complaint-detector` publish the classification
+4. Switch topic to `nexus.support.orders` to see `order-checker` output
+
+## Real-time behavior
+
+When an agent calls `agent.publish()`:
+
+1. The message is written to Kafka and Redis
+2. The bus broadcasts a `message.published` WebSocket event
+3. The Messages page prepends the new row with a highlight animation
+4. The dashboard Overview message count increments
+
+<Note>
+  Messages published before you opened the page are loaded on initial fetch. Live updates only cover new messages while the page is open.
+</Note>
+
+## Inspect a message
+
+Click any row to expand the full payload JSON. Useful fields:
+
+```json
+{
+  "id": "msg_abc123",
+  "correlation_id": "support_1717000000",
+  "topic": "nexus.support.orders",
+  "sender_agent": "order-checker",
+  "payload": {
+    "status": "order_checked",
+    "order_found": true,
+    "order_status": "shipped"
+  },
+  "timestamp": "2026-05-30T10:15:00Z"
+}
+```
+
+<Warning>
+  Payloads may contain customer data. Do not share screenshots of the Messages feed in public channels without redacting PII.
+</Warning>
+
+## API equivalent
+
+Fetch messages programmatically:
+
+```bash
+curl -s "$NEXUS_URL/api/v1/messages?topic=nexus.support.orders&limit=20" \
+  -H "Authorization: Bearer $API_KEY" | jq
+```
+
+Query parameters: `topic`, `agent`, `limit`.
+
+## Next steps
+
+- [Pipelines](/dashboard/pipelines) — group messages by correlation ID into pipeline runs
+- [Topology](/dashboard/topology) — see message flow as a graph
+- [Dead Letter Queue](/dashboard/deadletter) — messages that failed after retries
+- [Build your first pipeline](/guides/build-a-pipeline) — publish your first messages

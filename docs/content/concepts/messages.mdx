@@ -1,0 +1,167 @@
+---
+title: Messages
+description: Message schema, persistence, delivery guarantees, and size limits on the Nexus bus.
+---
+
+## What is a message?
+
+A **message** is a structured packet one agent publishes to a topic. Messages carry metadata and a lightweight JSON payload — not large pipeline data (that belongs in the [context store](/concepts/context-store)).
+
+<Info>
+  Every message in a pipeline run shares the same `correlation_id`. This links messages, context keys, and pipeline history together.
+</Info>
+
+## Message schema
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `id` | string | Yes | Unique message ID (e.g. `msg_a1b2c3d4`) |
+| `correlation_id` | string | Yes | Pipeline run this message belongs to |
+| `topic` | string | Yes | Kafka topic the message was published to |
+| `sender_agent` | string | Yes | Name of the publishing agent |
+| `payload` | object | Yes | Arbitrary JSON content (keep it small) |
+| `timestamp` | ISO datetime | Yes | When the message was created (UTC) |
+| `retry_count` | integer | Yes | Retry attempts (used for DLQ handling) |
+
+Example message:
+
+```json
+{
+  "id": "msg_a1b2c3d4",
+  "correlation_id": "run_1780068737_a286ob",
+  "topic": "nexus.research",
+  "sender_agent": "scout-agent",
+  "payload": { "status": "research_complete", "headline_count": 10 },
+  "timestamp": "2026-05-29T21:02:20.123456+00:00",
+  "retry_count": 0
+}
+```
+
+## Publishing
+
+Agents publish via the SDK or REST API:
+
+```python
+from nexus_bus import NexusAgent
+
+agent = NexusAgent(
+    name="scout-agent",
+    agent_type="researcher",
+    subscribe_topic="nexus.research",
+    nexus_url="http://localhost:8000",
+    api_key="nxs_live_sk_your_key_here",
+)
+
+agent.register()
+agent.publish(
+    "nexus.research",
+    {"status": "research_complete", "headline_count": 10},
+    "run_1780068737_a286ob",
+)
+```
+
+REST equivalent:
+
+```
+POST /api/v1/messages/publish
+```
+
+```json
+{
+  "topic": "nexus.research",
+  "correlation_id": "run_abc123",
+  "sender_agent": "scout-agent",
+  "payload": { "status": "research_complete" }
+}
+```
+
+Nexus validates the topic exists, persists the message, updates the pipeline tracker, increments the sender's message count, and broadcasts `message.published` to the dashboard.
+
+## Persistence
+
+Messages are stored in two layers:
+
+| Layer | Storage | TTL | Purpose |
+| --- | --- | --- | --- |
+| **Kafka** | Disk-backed topic log | Topic retention (default 7 days) | Durable delivery to consumers |
+| **Redis** | In-memory cache | 7 days | Fast lookup for dashboard and API |
+
+<Tip>
+  Even if all agents restart, messages remain in Kafka until retention expires. Consumers resume from their last seen offset.
+</Tip>
+
+<Note>
+  The v0.1 SDK polls `GET /api/v1/messages?topic=<topic>&limit=N` for new messages. Messages the agent has already seen are skipped. Set `skip_existing=True` on `start()` to ignore messages that existed before the agent started.
+</Note>
+
+## Delivery guarantee
+
+Nexus provides **at-least-once delivery** through Kafka:
+
+- Messages are written to Kafka disk **immediately** on publish
+- If a consumer is offline, the message waits in the topic — it is never lost
+- Each agent tracks seen message IDs; duplicates are skipped on the client
+- If processing fails, Nexus retries up to **3 times**, then moves the message to `nexus.deadletter`
+
+<Warning>
+  Your message handlers must be **idempotent**. Because delivery is at-least-once, the same message may be processed more than once. Use `correlation_id` + context keys to detect already-completed work.
+</Warning>
+
+## Size limit
+
+| Limit | Value | Guidance |
+| --- | --- | --- |
+| Maximum message payload | **1 MB** | Enforced at publish time |
+| Recommended payload | &lt; 4 KB | Status signals, counts, IDs only |
+
+Store large data (headlines, drafts, file contents) in the context store:
+
+```python
+# Good — small message, large data in context
+agent.context.set(correlation_id, "raw_headlines", headlines)
+agent.publish("nexus.research", {"status": "research_complete"}, correlation_id)
+
+# Bad — large payload in message body
+agent.publish("nexus.research", {"headlines": headlines}, correlation_id)  # may exceed 1 MB
+```
+
+## Consuming
+
+Register a handler and start the agent:
+
+```python
+from nexus_bus import NexusAgent
+
+agent = NexusAgent(
+    name="analyst-agent",
+    agent_type="analyst",
+    subscribe_topic="nexus.research",
+    nexus_url="http://localhost:8000",
+    api_key="nxs_live_sk_your_key_here",
+)
+
+@agent.on_message
+def handle(message):
+    correlation_id = message["correlation_id"]
+    headlines = agent.context.get(correlation_id, "raw_headlines")
+    # process...
+
+agent.start()
+```
+
+## Message history
+
+Browse recent messages in the dashboard **Live Messages** page or via API:
+
+```
+GET /api/v1/messages?topic=nexus.research&limit=50
+GET /api/v1/messages?agent=scout-agent
+GET /api/v1/messages/{message_id}
+```
+
+## Next steps
+
+- [Topics](/concepts/topics) — where messages are routed
+- [Context store](/concepts/context-store) — shared data between pipeline steps
+- [Pipelines](/concepts/pipelines) — how messages tie into pipeline runs
+- [Python SDK](/sdk/python) — `publish()` and `on_message()` reference

@@ -1,0 +1,162 @@
+---
+title: Topics
+description: List, create, and delete Kafka topics on the Nexus bus.
+---
+
+# Topics
+
+Base URL: `http://localhost:8000/api/v1/topics`
+
+Topics are Kafka channels that agents publish to and subscribe from. Nexus creates six default topics at startup.
+
+<Note>
+Default topics (`nexus.research`, `nexus.analysis`, `nexus.writing`, `nexus.delivery`, `nexus.deadletter`, `nexus.heartbeat`) cannot be deleted. Custom topics must be prefixed with `nexus.`.
+</Note>
+
+## GET `/topics`
+
+List all Kafka topics with partition and message statistics.
+
+**Auth required:** Bearer JWT
+
+### Response
+
+`200 OK`
+
+```json
+[
+  {
+    "name": "nexus.research",
+    "partition_count": 1,
+    "message_count": 128,
+    "size_bytes": 45678
+  },
+  {
+    "name": "nexus.analysis",
+    "partition_count": 1,
+    "message_count": 64,
+    "size_bytes": 23456
+  }
+]
+```
+
+`message_count` and `size_bytes` are aggregated from Redis message cache, not directly from Kafka.
+
+### cURL
+
+```bash
+curl http://localhost:8000/api/v1/topics \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+```
+
+### Error codes
+
+| Status | Detail | Cause |
+| --- | --- | --- |
+| `401` | Missing or invalid JWT | Not authenticated |
+| `503` | Kafka connection error | Broker unreachable |
+
+---
+
+## POST `/topics`
+
+Create a new Kafka topic.
+
+**Auth required:** Admin JWT
+
+### Request
+
+```json
+{
+  "name": "nexus.custom",
+  "partitions": 1,
+  "retention_days": 7
+}
+```
+
+| Field | Type | Default | Description |
+| --- | --- | --- | --- |
+| `name` | string | required | Must start with `nexus.` |
+| `partitions` | integer | `1` | Kafka partition count |
+| `retention_days` | integer | `7` | Returned in response metadata only |
+
+### Response
+
+`200 OK`
+
+```json
+{
+  "name": "nexus.custom",
+  "partition_count": 1,
+  "message_count": 0,
+  "size_bytes": 0,
+  "retention_days": 7
+}
+```
+
+### cURL
+
+```bash
+curl -X POST http://localhost:8000/api/v1/topics \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." \
+  -H "Content-Type: application/json" \
+  -d '{"name":"nexus.custom","partitions":1,"retention_days":7}'
+```
+
+### Error codes
+
+| Status | Detail | Cause |
+| --- | --- | --- |
+| `400` | `Topic name must start with 'nexus.'` | Invalid name prefix |
+| `401` | Missing or invalid JWT | Not authenticated |
+| `403` | `Admin role required` | Non-admin user |
+| `409` | `Topic 'nexus.custom' already exists` | Duplicate topic |
+| `422` | Validation error | Invalid field types |
+
+---
+
+## DELETE `/topics/{name}`
+
+Delete a Kafka topic.
+
+**Auth required:** Admin JWT
+
+### Request
+
+No body. Pass the topic name as a path parameter.
+
+### Response
+
+`200 OK`
+
+```json
+{
+  "message": "Topic nexus.custom deleted"
+}
+```
+
+### cURL
+
+```bash
+curl -X DELETE http://localhost:8000/api/v1/topics/nexus.custom \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+```
+
+### Error codes
+
+| Status | Detail | Cause |
+| --- | --- | --- |
+| `401` | Missing or invalid JWT | Not authenticated |
+| `403` | `Admin role required` | Non-admin user |
+| `403` | `Default Nexus topic 'nexus.research' cannot be deleted` | Protected default topic |
+| `404` | `Topic 'nexus.unknown' not found` | Topic does not exist |
+
+<Warning>
+Deleting a topic is irreversible. Agents subscribed to the topic will fail to publish until the topic is recreated.
+</Warning>
+
+## Next steps
+
+- **[Messages](/api/messages)** — Publish to topics
+- **[Agents](/api/agents)** — Configure agent `subscribe_topics`
+- **[Overview](/api/overview)** — See all default topic names

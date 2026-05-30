@@ -1,0 +1,242 @@
+---
+title: Agents
+description: Register, list, heartbeat, and deregister agents on the Nexus bus.
+---
+
+# Agents
+
+Base URL: `http://localhost:8000/api/v1/agents`
+
+Agents are registered workers that subscribe to Kafka topics and publish messages. Registration and heartbeats use API keys; listing and inspection use JWT.
+
+<Note>
+The Python and JavaScript SDKs call `POST /agents/register` and `POST /agents/{name}/heartbeat` automatically. Heartbeats are sent every 10 seconds; agents without a recent heartbeat are marked `dead`.
+</Note>
+
+## POST `/agents/register`
+
+Register a new agent on the bus.
+
+**Auth required:** Bearer API key
+
+### Request
+
+```json
+{
+  "name": "scout-agent",
+  "agent_type": "scout",
+  "subscribe_topics": ["nexus.research", "nexus.analysis"]
+}
+```
+
+### Response
+
+`200 OK`
+
+```json
+{
+  "name": "scout-agent",
+  "agent_type": "scout",
+  "subscribe_topics": ["nexus.research", "nexus.analysis"],
+  "status": "idle",
+  "registered_at": "2026-05-30T12:00:00.000Z",
+  "last_heartbeat": "2026-05-30T12:00:00.000Z",
+  "messages_processed": 0,
+  "error_count": 0
+}
+```
+
+Broadcasts an `agent.registered` WebSocket event.
+
+### cURL
+
+```bash
+curl -X POST http://localhost:8000/api/v1/agents/register \
+  -H "Authorization: Bearer nxs_live_sk_abc123..." \
+  -H "Content-Type: application/json" \
+  -d '{"name":"scout-agent","agent_type":"scout","subscribe_topics":["nexus.research"]}'
+```
+
+### Error codes
+
+| Status | Detail | Cause |
+| --- | --- | --- |
+| `401` | `Authorization token is not an API key` | JWT used instead of API key |
+| `401` | `Invalid API key` | Key not found or revoked |
+| `409` | `Agent 'scout-agent' is already registered` | Duplicate agent name |
+| `422` | Validation error | Missing required fields |
+
+---
+
+## GET `/agents`
+
+List all registered agents with enriched stats.
+
+**Auth required:** Bearer JWT
+
+### Query parameters
+
+| Parameter | Type | Description |
+| --- | --- | --- |
+| `status` | string | Optional filter: `active`, `idle`, `dead`, `deregistered` |
+
+### Response
+
+`200 OK`
+
+```json
+[
+  {
+    "name": "scout-agent",
+    "agent_type": "scout",
+    "subscribe_topics": ["nexus.research"],
+    "status": "idle",
+    "registered_at": "2026-05-30T12:00:00.000Z",
+    "last_heartbeat": "2026-05-30T12:05:00.000Z",
+    "messages_processed": 42,
+    "error_count": 1
+  }
+]
+```
+
+`messages_processed` and `error_count` are computed from Redis at request time.
+
+### cURL
+
+```bash
+curl "http://localhost:8000/api/v1/agents?status=idle" \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+```
+
+### Error codes
+
+| Status | Detail | Cause |
+| --- | --- | --- |
+| `401` | Missing or invalid JWT | Not authenticated |
+| `422` | Validation error | Invalid `status` value |
+
+---
+
+## GET `/agents/{name}`
+
+Get details for a single agent.
+
+**Auth required:** Bearer JWT
+
+### Response
+
+`200 OK`
+
+```json
+{
+  "name": "scout-agent",
+  "agent_type": "scout",
+  "subscribe_topics": ["nexus.research"],
+  "status": "idle",
+  "registered_at": "2026-05-30T12:00:00.000Z",
+  "last_heartbeat": "2026-05-30T12:05:00.000Z",
+  "messages_processed": 42,
+  "error_count": 1
+}
+```
+
+### cURL
+
+```bash
+curl http://localhost:8000/api/v1/agents/scout-agent \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+```
+
+### Error codes
+
+| Status | Detail | Cause |
+| --- | --- | --- |
+| `401` | Missing or invalid JWT | Not authenticated |
+| `404` | `Agent 'scout-agent' not found` | Agent not registered |
+
+---
+
+## POST `/agents/{name}/heartbeat`
+
+Update an agent's last heartbeat timestamp and set status to `idle`.
+
+**Auth required:** Bearer API key
+
+### Request
+
+No body.
+
+### Response
+
+`200 OK`
+
+```json
+{
+  "status": "ok",
+  "agent": "scout-agent",
+  "timestamp": "2026-05-30T12:05:30.123456+00:00"
+}
+```
+
+Broadcasts an `agent.heartbeat` WebSocket event.
+
+### cURL
+
+```bash
+curl -X POST http://localhost:8000/api/v1/agents/scout-agent/heartbeat \
+  -H "Authorization: Bearer nxs_live_sk_abc123..."
+```
+
+### Error codes
+
+| Status | Detail | Cause |
+| --- | --- | --- |
+| `401` | Invalid or missing API key | Not authenticated |
+| `404` | `Agent 'scout-agent' not found` | Agent not registered |
+
+---
+
+## DELETE `/agents/{name}`
+
+Deregister an agent and remove it from the registry.
+
+**Auth required:** Admin JWT
+
+### Request
+
+No body.
+
+### Response
+
+`200 OK`
+
+```json
+{
+  "message": "Agent scout-agent deregistered"
+}
+```
+
+### cURL
+
+```bash
+curl -X DELETE http://localhost:8000/api/v1/agents/scout-agent \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+```
+
+### Error codes
+
+| Status | Detail | Cause |
+| --- | --- | --- |
+| `401` | Missing or invalid JWT | Not authenticated |
+| `403` | `Admin role required` | Non-admin user |
+| `404` | `Agent 'scout-agent' not found` | Agent not registered |
+
+<Warning>
+Deregistering an agent does not stop a running process. Ensure the agent process is stopped separately to avoid re-registration conflicts.
+</Warning>
+
+## Next steps
+
+- **[Messages](/api/messages)** — Publish messages from registered agents
+- **[Topics](/api/topics)** — View topics agents subscribe to
+- **[WebSocket](/api/websocket)** — Monitor `agent.registered` and `agent.heartbeat` events

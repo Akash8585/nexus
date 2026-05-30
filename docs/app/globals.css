@@ -1,0 +1,50 @@
+@import 'nextra-theme-docs/style.css';
+
+/* DESIGN.md tokens: primary #00D992, canvas #101010, ink #f2f2f2, body #bdbdbd, hairline #3d3a39 */
+
+:root {
+  --nexus-primary: #00d992;
+  --nexus-canvas: #101010;
+  --nexus-ink: #f2f2f2;
+  --nexus-body: #bdbdbd;
+  --nexus-hairline: #3d3a39;
+
+  --nextra-primary-hue: 160deg;
+  --nextra-primary-saturation: 100%;
+  --nextra-primary-lightness: 42%;
+}
+
+html {
+  color-scheme: dark;
+}
+
+html.dark,
+html:not(.light) {
+  --nextra-bg: 16 16 16;
+}
+
+body {
+  background-color: var(--nexus-canvas);
+  color: var(--nexus-body);
+}
+
+.nextra-body h1,
+.nextra-body h2,
+.nextra-body h3,
+.nextra-body h4 {
+  color: var(--nexus-ink);
+}
+
+.nextra-border,
+.x\:border-gray-200,
+.x\:dark\:border-neutral-800 {
+  border-color: var(--nexus-hairline) !important;
+}
+
+a:not([class]) {
+  color: var(--nexus-primary);
+}
+
+a:not([class]):hover {
+  opacity: 0.85;
+}

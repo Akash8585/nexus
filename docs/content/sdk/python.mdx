@@ -1,0 +1,250 @@
+---
+title: Python SDK
+description: Full reference for the nexus-bus Python package — installation, NexusAgent API, Groq example, and error handling.
+---
+
+## Installation
+
+```bash
+pip install nexus-bus
+```
+
+Local development from this repository:
+
+```bash
+cd sdk/python
+pip install -e ".[dev]"
+```
+
+<Note>
+  Requires Python 3.9 or later. The SDK uses `httpx` for HTTP and runs heartbeat and consume loops in background threads.
+</Note>
+
+## Quickstart
+
+```python
+from nexus_bus import NexusAgent
+
+agent = NexusAgent(
+    name="writer-agent",
+    agent_type="writer",
+    subscribe_topic="nexus.analysis",
+    nexus_url="http://localhost:8000",
+    api_key="nxs_live_sk_your_key_here",
+)
+
+@agent.on_message
+def handle(message):
+    top5 = agent.context.get(message["correlation_id"], "top5_stories")
+    agent.publish("nexus.writing", {"status": "writing_complete"}, message["correlation_id"])
+
+agent.start()
+```
+
+## NexusAgent
+
+### Constructor
+
+```python
+NexusAgent(
+    name: str,
+    agent_type: str,
+    subscribe_topic: str,
+    nexus_url: str,
+    api_key: str,
+    *,
+    heartbeat_interval: float = 10.0,
+    poll_interval: float = 3.0,
+)
+```
+
+| Parameter | Type | Default | Description |
+| --- | --- | --- | --- |
+| `name` | `str` | — | Unique agent name in the registry |
+| `agent_type` | `str` | — | Role label (e.g. `writer`, `analyst`) |
+| `subscribe_topic` | `str` | — | Topic to consume messages from |
+| `nexus_url` | `str` | — | Base URL of Nexus bus (no trailing slash) |
+| `api_key` | `str` | — | Nexus API key (`nxs_live_sk_...`) |
+| `heartbeat_interval` | `float` | `10.0` | Seconds between heartbeats |
+| `poll_interval` | `float` | `3.0` | Seconds between message polls |
+
+### Methods
+
+| Method | Returns | Description |
+| --- | --- | --- |
+| `register()` | `None` | Register with Nexus. Raises `NexusAuthError` on invalid key |
+| `deregister()` | `None` | Remove agent from registry |
+| `publish(topic, payload, correlation_id)` | `dict` | Publish a message. Raises `NexusPublishError` on failure |
+| `on_message(callback)` | `Callable` | Register handler (decorator or direct call) |
+| `start(skip_existing=False)` | `NexusAgent` | Register, start heartbeat, begin consuming |
+| `stop()` | `None` | Stop loops and deregister |
+| `close()` | `None` | `stop()` plus close HTTP client |
+
+<Tip>
+  Use `start(skip_existing=True)` when restarting an agent that should ignore messages published before it came online.
+</Tip>
+
+### Context manager
+
+```python
+with NexusAgent(...) as agent:
+    agent.start()
+    # agent.close() called automatically on exit
+```
+
+### `agent.context` — ContextClient
+
+| Method | Returns | Description |
+| --- | --- | --- |
+| `get(correlation_id, key)` | `Any \| None` | Read one key; returns `None` if not found |
+| `set(correlation_id, key, value, ttl_hours=24)` | `dict` | Write one key with optional TTL |
+| `get_all(correlation_id)` | `dict` | All keys for a pipeline run |
+
+## Full Groq example
+
+An analyst agent that listens on `nexus.research`, reads headlines from context, ranks them with Groq, and publishes to `nexus.analysis`:
+
+```python
+import json
+import os
+
+from dotenv import load_dotenv
+from groq import Groq
+from nexus_bus import NexusAgent, NexusAuthError, NexusPublishError
+
+load_dotenv()
+
+NEXUS_URL = os.getenv("NEXUS_URL", "http://localhost:8000")
+NEXUS_API_KEY = os.getenv("NEXUS_API_KEY")
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+MODEL = "llama-3.3-70b-versatile"
+
+agent = NexusAgent(
+    name="analyst-agent",
+    agent_type="analyst",
+    subscribe_topic="nexus.research",
+    nexus_url=NEXUS_URL,
+    api_key=NEXUS_API_KEY,
+)
+groq = Groq(api_key=GROQ_API_KEY)
+
+
+def rank_stories(headlines: list[dict]) -> list[dict]:
+    response = groq.chat.completions.create(
+        model=MODEL,
+        messages=[
+            {
+                "role": "user",
+                "content": (
+                    f"Rank the top 5 most important stories from this JSON:\n"
+                    f"{json.dumps(headlines, indent=2)}\n"
+                    "Return ONLY a JSON array of 5 objects with fields: "
+                    "rank, title, source, summary, importance."
+                ),
+            }
+        ],
+        temperature=0.3,
+    )
+    return json.loads(response.choices[0].message.content)[:5]
+
+
+@agent.on_message
+def handle(message):
+    correlation_id = message["correlation_id"]
+    headlines = agent.context.get(correlation_id, "raw_headlines")
+    if not headlines:
+        return
+
+    top5 = rank_stories(headlines)
+    agent.context.set(correlation_id, "top5_stories", top5)
+    agent.publish(
+        "nexus.analysis",
+        {"story_count": len(top5), "status": "analysis_complete"},
+        correlation_id,
+    )
+
+
+if __name__ == "__main__":
+    try:
+        agent.start()
+        agent._consume_thread.join()  # keep main thread alive
+    except NexusAuthError:
+        print("Invalid API key — check NEXUS_API_KEY in your .env")
+    except NexusPublishError as exc:
+        print(f"Publish failed: {exc}")
+    finally:
+        agent.close()
+```
+
+<Info>
+  This mirrors the demo pipeline in `demo/agents/analyst.py`. Store large LLM output in context; publish only status metadata in the message.
+</Info>
+
+## Error handling
+
+| Exception | When raised |
+| --- | --- |
+| `NexusAuthError` | Invalid or unauthorized API key |
+| `NexusConnectionError` | Cannot reach the Nexus bus API |
+| `NexusPublishError` | Message publish rejected by the bus |
+| `NexusConsumeError` | Message polling failed |
+| `NexusError` | Base class for all SDK exceptions |
+
+```python
+from nexus_bus import NexusAgent, NexusAuthError, NexusPublishError
+
+agent = NexusAgent(
+    name="scout-agent",
+    agent_type="researcher",
+    subscribe_topic="nexus.research",
+    nexus_url="http://localhost:8000",
+    api_key="nxs_live_sk_your_key_here",
+)
+
+try:
+    agent.register()
+    agent.publish("nexus.research", {"status": "ok"}, "run_123")
+except NexusAuthError:
+    print("Check your API key in the Nexus dashboard")
+except NexusPublishError as exc:
+    print(f"Publish failed: {exc}")
+finally:
+    agent.close()
+```
+
+<Warning>
+  Always call `agent.close()` (or use the context manager) to deregister cleanly and release the HTTP client. Unclosed agents remain in the registry until the 30-second heartbeat timeout.
+</Warning>
+
+## Environment variables
+
+| Variable | Required | Description |
+| --- | --- | --- |
+| `NEXUS_URL` | Yes | Base URL of the Nexus bus (e.g. `http://localhost:8000`) |
+| `NEXUS_API_KEY` | Yes | API key from dashboard **Settings → API Keys** |
+| `GROQ_API_KEY` | For LLM agents | Groq API key for chat completions |
+| `OPENAI_API_KEY` | Optional | Alternative LLM provider |
+
+Example `.env` for the demo:
+
+```bash
+NEXUS_URL=http://localhost:8000
+NEXUS_API_KEY=nxs_live_sk_your_key_here
+GROQ_API_KEY=gsk_your_groq_key_here
+```
+
+## Development
+
+```bash
+cd sdk/python
+pip install -e ".[dev]"
+pytest
+python -m build
+```
+
+## Next steps
+
+- [Agents](/concepts/agents) — lifecycle and stateless design
+- [Context store](/concepts/context-store) — `agent.context.get()` / `set()` patterns
+- [JavaScript SDK](/sdk/javascript) — TypeScript equivalent
+- [Quickstart](/quickstart) — run Nexus locally end to end

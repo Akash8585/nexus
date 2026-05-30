@@ -1,0 +1,111 @@
+---
+title: Agents
+description: Agent registry, status colors, heartbeats, and per-agent detail pages.
+---
+
+The **Agents** page lists every agent registered with Nexus — name, type, subscribed topics, heartbeat, and message count. It is your single source of truth for agent health across the entire system.
+
+<Screenshot caption="Agents grid showing active, idle, and dead agents with status color indicators" />
+
+## What it shows
+
+Each agent card displays:
+
+| Field | Description |
+| --- | --- |
+| **Name** | Unique identifier (e.g. `complaint-detector`) |
+| **Type** | Agent category (e.g. `classifier`, `researcher`, `writer`) |
+| **Status** | Active, idle, dead, or deregistered |
+| **Subscribe topics** | Kafka topics this agent consumes |
+| **Last heartbeat** | Time since last heartbeat ping |
+| **Messages processed** | Total messages handled since registration |
+| **Error count** | Messages that landed in the DLQ from this agent |
+
+## Status colors
+
+| Status | Color | Dot | Meaning |
+| --- | --- | --- | --- |
+| **Active** | Green (`#22c55e`) | ● | Heartbeat within threshold; recently processed messages |
+| **Idle** | Grey (`#6b7280`) | ● | Registered but no recent activity |
+| **Dead** | Red (`#ef4444`) | ● | Heartbeat missed — process likely crashed |
+| **Deregistered** | Dark grey (`#374151`) | ● | Agent called `deregister()` or was removed by admin |
+
+<Tip>
+  An agent transitions from **active** to **dead** when it misses heartbeats for approximately 30 seconds. Restart the process to recover.
+</Tip>
+
+<Info>
+  Heartbeats are sent automatically when you call `agent.start()`. The default interval is 10 seconds.
+</Info>
+
+## Filters
+
+Narrow the agent list using the filter bar:
+
+| Filter | Options |
+| --- | --- |
+| **Search** | Filter by agent name |
+| **Status** | All, active, idle, dead |
+| **Type** | All, researcher, analyst, writer, deliverer, monitor, classifier, lookup |
+
+Filters combine — e.g. show only **dead** agents of type **writer**.
+
+## Agent Detail
+
+Click any agent card to open `/dashboard/agents/[name]`. The detail page includes:
+
+- Full registration metadata (registered at, subscribe topics)
+- Message history filtered to this sender
+- Error count and linked DLQ entries
+- **Deregister** button (admin only) — removes the agent from the registry
+
+<Warning>
+  Deregistering a running agent does not stop its process — it only removes it from the registry. Stop the process separately to prevent re-registration conflicts.
+</Warning>
+
+## Registering agents
+
+Agents register via the SDK or REST API:
+
+```python
+from nexus_bus import NexusAgent
+
+agent = NexusAgent(
+    name="complaint-detector",
+    agent_type="classifier",
+    subscribe_topic="nexus.support.intake",
+    nexus_url="http://localhost:8000",
+    api_key="nxs_live_sk_...",
+)
+agent.start()  # registers, starts heartbeat, begins consuming
+```
+
+```bash
+curl -s -X POST "$NEXUS_URL/api/v1/agents/register" \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "complaint-detector",
+    "agent_type": "classifier",
+    "subscribe_topics": ["nexus.support.intake"]
+  }'
+```
+
+New agents appear on the Agents page within seconds via the `agent.registered` WebSocket event.
+
+## Admin actions
+
+Admins can **deregister** dead or stale agents from the detail page. Viewers have read-only access.
+
+| Action | Role required | Effect |
+| --- | --- | --- |
+| View agents | Viewer | Read registry |
+| Deregister agent | Admin | Remove from registry |
+| View DLQ errors | Viewer | See error count and linked entries |
+
+## Next steps
+
+- [Topology](/dashboard/topology) — see agents as nodes in the live graph
+- [Dead Letter Queue](/dashboard/deadletter) — investigate agent errors
+- [Scaling your agents](/guides/scaling) — run multiple instances of the same type
+- [Build your first pipeline](/guides/build-a-pipeline) — register complaint-detector and order-checker

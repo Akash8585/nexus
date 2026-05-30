@@ -1,0 +1,308 @@
+---
+title: Build your first pipeline
+description: Step-by-step guide to building a customer support pipeline with complaint-detector and order-checker agents.
+---
+
+This guide walks through Rahul's **customer support pipeline** — five agents that classify complaints, verify orders, check policy, draft replies, and send email. You will create topics, build two agents, connect them through Nexus, trigger a run, and debug failures on the dashboard.
+
+## Pipeline overview
+
+```
+complaint-detector → order-checker → policy-checker → reply-writer → email-sender
+```
+
+Each stage publishes to its own Kafka topic. All agents share pipeline memory through the Redis context store, keyed by **correlation ID**.
+
+<Tip>
+  Draw your pipeline on paper before writing code. One topic per stage keeps agents decoupled and makes the topology graph easy to read.
+</Tip>
+
+## Step 1 — Plan your pipeline
+
+Before writing code, define what each agent does:
+
+| Agent | Subscribes to | Publishes to | Responsibility |
+| --- | --- | --- | --- |
+| `complaint-detector` | `nexus.support.intake` | `nexus.support.intake` | Classify incoming complaint text |
+| `order-checker` | `nexus.support.intake` | `nexus.support.orders` | Look up order status |
+| `policy-checker` | `nexus.support.orders` | `nexus.support.policy` | Apply refund/return rules |
+| `reply-writer` | `nexus.support.policy` | `nexus.support.reply` | Draft customer response |
+| `email-sender` | `nexus.support.reply` | `nexus.support.send` | Send email and mark complete |
+
+<Info>
+  In this guide we build the first two agents completely. The remaining three follow the same pattern — subscribe, process, write context, publish.
+</Info>
+
+## Step 2 — Create your topics
+
+Create one topic per pipeline stage. Use your admin JWT or API key:
+
+```bash
+export NEXUS_URL=http://localhost:8000
+export API_KEY=nxs_live_sk_your_key_here
+
+for topic in intake orders policy reply send; do
+  curl -s -X POST "$NEXUS_URL/api/v1/topics" \
+    -H "Authorization: Bearer $API_KEY" \
+    -H "Content-Type: application/json" \
+    -d "{\"name\": \"nexus.support.$topic\", \"partitions\": 1, \"retention_days\": 7}"
+done
+```
+
+Verify topics were created:
+
+```bash
+curl -s "$NEXUS_URL/api/v1/topics" \
+  -H "Authorization: Bearer $API_KEY" | jq '.[].name'
+```
+
+<Note>
+  Custom topic names **must** start with `nexus.`. Default Nexus topics (`nexus.research`, etc.) are created automatically on startup.
+</Note>
+
+## Step 3 — Build Agent 1 (complaint-detector)
+
+Create `agents/complaint-detector.py`:
+
+```python
+import re
+from typing import Any
+
+from nexus_bus import NexusAgent
+
+NEXUS_URL = "http://localhost:8000"
+API_KEY = "nxs_live_sk_your_key_here"
+
+URGENCY_KEYWORDS = {
+    "high": ["urgent", "lawyer", "chargeback", "fraud", "never arrived"],
+    "medium": ["delayed", "wrong item", "damaged", "refund"],
+    "low": ["question", "status", "when will"],
+}
+
+
+def classify_complaint(text: str) -> dict[str, Any]:
+    lowered = text.lower()
+    category = "general"
+    urgency = "low"
+
+    if any(k in lowered for k in URGENCY_KEYWORDS["high"]):
+        urgency = "high"
+    elif any(k in lowered for k in URGENCY_KEYWORDS["medium"]):
+        urgency = "medium"
+
+    if "refund" in lowered or "return" in lowered:
+        category = "refund_request"
+    elif "delivery" in lowered or "shipping" in lowered or "late" in lowered:
+        category = "delivery_issue"
+    elif re.search(r"order\s*#?\s*(\d+)", lowered):
+        category = "order_inquiry"
+
+    order_match = re.search(r"order\s*#?\s*(\d+)", lowered)
+    order_id = order_match.group(1) if order_match else None
+
+    return {
+        "category": category,
+        "urgency": urgency,
+        "order_id": order_id,
+        "raw_text": text,
+    }
+
+
+agent = NexusAgent(
+    name="complaint-detector",
+    agent_type="classifier",
+    subscribe_topic="nexus.support.intake",
+    nexus_url=NEXUS_URL,
+    api_key=API_KEY,
+)
+
+
+@agent.on_message
+def handle(message: dict[str, Any]) -> None:
+    correlation_id = message["correlation_id"]
+    payload = message.get("payload", {})
+    complaint_text = payload.get("complaint_text", "")
+
+    classification = classify_complaint(complaint_text)
+    agent.context.set(correlation_id, "classification", classification)
+
+    agent.publish(
+        "nexus.support.intake",
+        {
+            "status": "classified",
+            "category": classification["category"],
+            "urgency": classification["urgency"],
+            "order_id": classification["order_id"],
+        },
+        correlation_id,
+    )
+    print(f"[complaint-detector] {correlation_id}: {classification['category']} ({classification['urgency']})")
+
+
+if __name__ == "__main__":
+    agent.start()
+    print("complaint-detector listening on nexus.support.intake")
+    agent._running = True
+    try:
+        while agent._running:
+            pass
+    except KeyboardInterrupt:
+        agent.stop()
+```
+
+## Step 4 — Build Agent 2 (order-checker)
+
+Create `agents/order-checker.py`:
+
+```python
+from typing import Any
+
+from nexus_bus import NexusAgent
+
+NEXUS_URL = "http://localhost:8000"
+API_KEY = "nxs_live_sk_your_key_here"
+
+# Demo order database — replace with your CRM or database lookup
+ORDERS = {
+    "1042": {"status": "shipped", "eta_days": 2, "total_usd": 89.99},
+    "8821": {"status": "delivered", "eta_days": 0, "total_usd": 149.00},
+    "3301": {"status": "processing", "eta_days": 5, "total_usd": 42.50},
+}
+
+
+def lookup_order(order_id: str | None) -> dict[str, Any]:
+    if not order_id:
+        return {"found": False, "reason": "no_order_id_in_complaint"}
+    record = ORDERS.get(order_id)
+    if not record:
+        return {"found": False, "order_id": order_id, "reason": "order_not_found"}
+    return {"found": True, "order_id": order_id, **record}
+
+
+agent = NexusAgent(
+    name="order-checker",
+    agent_type="lookup",
+    subscribe_topic="nexus.support.intake",
+    nexus_url=NEXUS_URL,
+    api_key=API_KEY,
+)
+
+
+@agent.on_message
+def handle(message: dict[str, Any]) -> None:
+    correlation_id = message["correlation_id"]
+    payload = message.get("payload", {})
+
+    if payload.get("status") != "classified":
+        return
+
+    classification = agent.context.get(correlation_id, "classification") or {}
+    order_id = payload.get("order_id") or classification.get("order_id")
+    order_info = lookup_order(order_id)
+
+    agent.context.set(correlation_id, "order", order_info)
+    agent.publish(
+        "nexus.support.orders",
+        {
+            "status": "order_checked",
+            "order_found": order_info.get("found", False),
+            "order_status": order_info.get("status"),
+            "urgency": classification.get("urgency", "low"),
+        },
+        correlation_id,
+    )
+    print(f"[order-checker] {correlation_id}: order {order_id} → {order_info}")
+
+
+if __name__ == "__main__":
+    agent.start()
+    print("order-checker listening on nexus.support.intake")
+    agent._running = True
+    try:
+        while agent._running:
+            pass
+    except KeyboardInterrupt:
+        agent.stop()
+```
+
+## Step 5 — Connect them through Nexus
+
+Install the SDK and start both agents in separate terminals:
+
+```bash
+pip install nexus-bus
+
+# Terminal 1
+python agents/complaint-detector.py
+
+# Terminal 2
+python agents/order-checker.py
+```
+
+Both agents register with Nexus, send heartbeats, and appear on the **Agents** page. When `complaint-detector` publishes, `order-checker` receives the message on the shared intake topic.
+
+<Warning>
+  Each agent must use a **unique name**. Running two copies of `complaint-detector` with the same name will cause registration conflicts.
+</Warning>
+
+## Step 6 — Trigger the pipeline
+
+Start a pipeline run and inject the initial complaint:
+
+```bash
+CORRELATION_ID="support_$(date +%s)"
+
+curl -s -X POST "$NEXUS_URL/api/v1/pipelines/start" \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d "{\"correlation_id\": \"$CORRELATION_ID\", \"trigger_input\": \"Order #1042 never arrived, I want a refund urgently\"}"
+
+curl -s -X POST "$NEXUS_URL/api/v1/messages/publish" \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"correlation_id\": \"$CORRELATION_ID\",
+    \"topic\": \"nexus.support.intake\",
+    \"sender_agent\": \"complaint-detector\",
+    \"payload\": {
+      \"complaint_text\": \"Order #1042 never arrived, I want a refund urgently\"
+    }
+  }"
+```
+
+Expected flow:
+
+1. `complaint-detector` classifies the complaint as `delivery_issue` with `high` urgency
+2. Context store receives `classification` and `order` keys
+3. `order-checker` publishes order status `shipped` to `nexus.support.orders`
+
+## Step 7 — Watch it on the dashboard
+
+Open the dashboard and observe the pipeline live:
+
+1. **Topology** — `http://localhost:3000/dashboard/topology` — see agents as nodes and topics as edges
+2. **Messages** — `http://localhost:3000/dashboard/messages` — watch messages appear in real time
+3. **Pipelines** — `http://localhost:3000/dashboard/pipelines` — find your correlation ID
+
+<Screenshot caption="Topology view showing complaint-detector and order-checker connected through nexus.support topics" />
+
+## Step 8 — Debug a failed run
+
+If a run fails (agent crash, bad payload, missing order):
+
+1. Open **Pipeline History** → click the failed run
+2. Review each message in chronological order
+3. Check the **Dead Letter Queue** for messages that exhausted retries
+4. Click **Replay** to step through the run message by message
+5. Fix the agent code, restart the agent, and click **Rerun** to start a new run with the same trigger input
+
+<Tip>
+  Use the context store (`GET /api/v1/context/{correlation_id}`) to inspect shared pipeline memory without reading agent logs.
+</Tip>
+
+## Next steps
+
+- [Using any AI model](/guides/model-agnostic) — swap rule-based classifiers for LLM calls
+- [Handling failures](/guides/error-handling) — dead letter queue, retries, and recovery patterns
+- [Dashboard: Pipelines](/dashboard/pipelines) — replay and rerun from the UI
+- [Dashboard: Topology](/dashboard/topology) — visualize your support pipeline graph

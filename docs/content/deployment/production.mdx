@@ -1,0 +1,197 @@
+---
+title: Production deployment
+description: Environment variables, VPS deployment, nginx reverse proxy, and security checklist.
+---
+
+Deploy Nexus on a VPS or cloud instance for production workloads. This guide covers environment hardening, reverse proxy setup, and a security checklist.
+
+<Warning>
+  Never deploy with default secrets. Change `JWT_SECRET_KEY` and close debug ports before exposing Nexus to the internet.
+</Warning>
+
+## Environment variables
+
+Update these in `bus/.env` or your hosting platform's environment config:
+
+| Variable | Development | Production |
+| --- | --- | --- |
+| `JWT_SECRET_KEY` | `changeme` | 64+ character random string |
+| `JWT_ALGORITHM` | `HS256` | `HS256` |
+| `JWT_EXPIRY_HOURS` | `24` | `24` (or shorter for stricter sessions) |
+| `KAFKA_BOOTSTRAP_SERVERS` | `kafka:29092` | Internal broker address |
+| `REDIS_URL` | `redis://redis:6379` | `redis://:password@redis:6379` (with auth) |
+| `FRONTEND_URL` | `http://localhost:3000` | `https://nexus.yourdomain.com` |
+
+Generate a secure JWT secret:
+
+```bash
+python -c "import secrets; print(secrets.token_urlsafe(64))"
+```
+
+<Tip>
+  Store secrets in your platform's secret manager (Railway variables, Render env groups, AWS SSM) — never commit them to git.
+</Tip>
+
+## VPS deployment
+
+### 1. Provision a server
+
+Minimum specs for small deployments:
+
+| Resource | Minimum | Recommended |
+| --- | --- | --- |
+| CPU | 2 vCPU | 4 vCPU |
+| RAM | 4 GB | 8 GB |
+| Disk | 20 GB SSD | 40 GB SSD |
+
+Railway, Render, DigitalOcean, and Hetzner all work well.
+
+### 2. Clone and configure
+
+```bash
+git clone https://github.com/Akash8585/nexus.git
+cd nexus
+cp bus/.env.example bus/.env
+# Edit bus/.env with production values
+```
+
+### 3. Start infrastructure
+
+```bash
+docker compose up -d
+```
+
+For production, update `docker-compose.yml`:
+
+- Remove or disable **Kafka UI** (port 8080)
+- Do not expose Redis (6379) or Kafka (9092) publicly
+- Expose only **8000** (API) and **3000** (dashboard) — or route both through nginx on 443
+
+### 4. Build and run the dashboard
+
+```bash
+cd dashboard
+npm install
+npm run build
+npm start
+```
+
+Set `NEXT_PUBLIC_API_URL=https://nexus.yourdomain.com/api/v1` before building.
+
+### 5. Open only required ports
+
+| Port | Public? | Service |
+| --- | --- | --- |
+| 443 | Yes | HTTPS (nginx → API + dashboard) |
+| 8000 | Internal only | Nexus Bus API |
+| 3000 | Internal only | Dashboard |
+| 9092 | **No** | Kafka |
+| 6379 | **No** | Redis |
+| 8080 | **No** | Kafka UI |
+
+<Info>
+  Agents connect to the Nexus API over HTTPS — they never need direct access to Kafka or Redis ports.
+</Info>
+
+## Nginx reverse proxy
+
+Route both the API and dashboard through a single domain with TLS:
+
+```nginx
+upstream nexus_api {
+    server 127.0.0.1:8000;
+}
+
+upstream nexus_dashboard {
+    server 127.0.0.1:3000;
+}
+
+server {
+    listen 443 ssl http2;
+    server_name nexus.yourdomain.com;
+
+    ssl_certificate     /etc/letsencrypt/live/nexus.yourdomain.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/nexus.yourdomain.com/privkey.pem;
+
+    # Dashboard
+    location / {
+        proxy_pass http://nexus_dashboard;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # Nexus Bus API
+    location /api/v1/ {
+        proxy_pass http://nexus_api/api/v1/;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # Health check (no auth)
+    location /health {
+        proxy_pass http://nexus_api/health;
+    }
+}
+
+server {
+    listen 80;
+    server_name nexus.yourdomain.com;
+    return 301 https://$host$request_uri;
+}
+```
+
+Obtain TLS certificates with [Certbot](https://certbot.eff.org/):
+
+```bash
+sudo certbot --nginx -d nexus.yourdomain.com
+```
+
+## Security checklist
+
+Before going live, verify every item:
+
+- [ ] **Change `JWT_SECRET_KEY`** — never use `changeme` in production
+- [ ] **Close debug ports** — block 8080 (Kafka UI) and 6379 (Redis) from public access
+- [ ] **Use HTTPS** — terminate TLS at nginx or your cloud load balancer
+- [ ] **Rotate API keys regularly** — revoke old keys after deploying new ones
+- [ ] **Set `FRONTEND_URL`** — must match your public dashboard URL for CORS
+- [ ] **Enable Redis auth** — use a password in `REDIS_URL` for multi-tenant VPS
+- [ ] **Restrict admin access** — invite only trusted users; use Viewer role for read-only
+- [ ] **Back up Redis** — context and message history live in Redis with TTL
+- [ ] **Monitor agent health** — set up alerts when agents go dead
+- [ ] **Keep Docker images updated** — periodically pull latest Kafka and Redis images
+
+<Screenshot caption="Production deployment architecture — nginx terminating TLS, internal Kafka and Redis" />
+
+## Scaling in production
+
+- Run multiple agent instances per type — see [Scaling](/guides/scaling)
+- Increase Kafka topic partitions for parallel consumption
+- Consider a managed Kafka service (Confluent Cloud, AWS MSK) for high availability
+- Redis Sentinel or managed Redis (ElastiCache) for context store resilience
+
+## Monitoring
+
+| What to watch | How |
+| --- | --- |
+| API health | `GET /health` — uptime monitor every 60s |
+| Agent heartbeats | Dashboard Agents page — alert on dead agents |
+| DLQ growth | Dashboard Dead Letter Queue — alert on new entries |
+| Disk usage | Kafka log retention — adjust `retention_days` per topic |
+
+## Next steps
+
+- [Local deployment](/deployment/local) — development setup reference
+- [Settings](/dashboard/settings) — API keys, team, and TTL in production
+- [Handling failures](/guides/error-handling) — production failure recovery
+- [Scaling your agents](/guides/scaling) — horizontal scaling under load

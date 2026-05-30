@@ -1,0 +1,188 @@
+---
+title: Quickstart
+description: From zero to running agents in under 30 minutes
+---
+
+## Step 1 — Prerequisites
+
+You need the following installed before you start:
+
+| Requirement | Version | Install |
+| --- | --- | --- |
+| Docker Desktop | Latest | [docker.com/get-docker](https://docs.docker.com/get-docker/) |
+| Python **or** Node.js | Python 3.11+ or Node.js 18+ | [python.org](https://www.python.org/downloads/) · [nodejs.org](https://nodejs.org/) |
+| Git | Any recent version | [git-scm.com](https://git-scm.com/downloads) |
+
+<Note>
+  A Groq or OpenAI API key is optional. You only need one if you run the demo pipeline in Step 9.
+</Note>
+
+## Step 2 — Clone and start
+
+Clone the repository and start the stack:
+
+```bash
+git clone https://github.com/Akash8585/nexus
+cd nexus
+docker compose up -d
+```
+
+Wait 30 seconds for all services to start. You should see 5 containers running:
+
+```bash
+docker compose ps
+```
+
+Expected output:
+
+```
+nexus-zookeeper   Up (healthy)
+nexus-kafka       Up (healthy)
+nexus-kafka-ui    Up (healthy)
+nexus-redis       Up (healthy)
+nexus-bus         Up (healthy)
+```
+
+<Tip>
+  The Nexus Bus API runs at `http://localhost:8000`. Kafka UI is at `http://localhost:8080` for debugging.
+</Tip>
+
+## Step 3 — Open the dashboard
+
+Open [http://localhost:3000](http://localhost:3000) in your browser.
+
+You will see the Nexus landing page. Click **Get Started** to create your admin account.
+
+<Screenshot caption="Nexus dashboard — first run setup" />
+
+<Note>
+  If the dashboard is not running, start it separately: `cd dashboard && npm install && npm run dev`.
+</Note>
+
+## Step 4 — Create admin account
+
+Fill in your name, email, and password.
+
+The first account created is automatically the **Admin**. Log in and you will land on the dashboard home — empty until you connect agents.
+
+## Step 5 — Generate an API key
+
+1. Go to **Settings → API Keys → Generate New Key**
+2. Give it a name like `my-agents`
+3. Copy the key — it starts with `nxs_live_sk_`
+
+<Warning>
+  Store this key securely. It is shown only once and cannot be retrieved again.
+</Warning>
+
+Agents send this key in every SDK request: `Authorization: Bearer nxs_live_sk_...`
+
+## Step 6 — Install the SDK
+
+<Tabs items={['Python', 'JavaScript']}>
+  <Tabs.Tab>
+```bash
+pip install nexus-bus
+```
+  </Tabs.Tab>
+  <Tabs.Tab>
+```bash
+npm install nexus-bus
+```
+  </Tabs.Tab>
+</Tabs>
+
+For local development from this repo:
+
+```bash
+cd sdk/python && pip install -e ".[dev]"
+# or
+cd sdk/javascript && npm install
+```
+
+## Step 7 — Connect your first agent
+
+<Tabs items={['Python', 'JavaScript']}>
+  <Tabs.Tab>
+```python
+from nexus_bus import NexusAgent
+
+agent = NexusAgent(
+    name="my-first-agent",
+    agent_type="researcher",
+    subscribe_topic="nexus.research",
+    nexus_url="http://localhost:8000",
+    api_key="nxs_live_sk_YOUR_KEY",
+)
+
+@agent.on_message
+def handle(message):
+    print(f"Received: {message['payload']}")
+    # your logic here
+
+agent.start()
+print("Agent connected. Waiting for messages...")
+```
+  </Tabs.Tab>
+  <Tabs.Tab>
+```typescript
+import { NexusAgent } from "nexus-bus";
+
+const agent = new NexusAgent({
+  name: "my-first-agent",
+  agentType: "researcher",
+  subscribeTopic: "nexus.research",
+  nexusUrl: "http://localhost:8000",
+  apiKey: "nxs_live_sk_YOUR_KEY",
+});
+
+agent.onMessage(async (message) => {
+  console.log("Received:", message.payload);
+  // your logic here
+});
+
+await agent.start();
+console.log("Agent connected.");
+```
+  </Tabs.Tab>
+</Tabs>
+
+Replace `nxs_live_sk_YOUR_KEY` with the key you copied in Step 5.
+
+<Tip>
+  Use `agent.context.get(correlation_id, key)` and `agent.context.set(correlation_id, key, value)` to share data between agents in a pipeline.
+</Tip>
+
+## Step 8 — Verify it works
+
+Open [http://localhost:3000/dashboard/agents](http://localhost:3000/dashboard/agents).
+
+You should see your agent appear as a green card within a few seconds.
+
+<Tip>
+  Your agent is connected to Nexus. It will receive messages published to `nexus.research` automatically.
+</Tip>
+
+## Step 9 — Run the demo (optional)
+
+<Info>
+  The included demo runs 4 agents end-to-end to verify Nexus is working correctly on your machine. This is a verification step — not a requirement.
+</Info>
+
+```bash
+cd demo
+cp .env.example .env
+# Add NEXUS_API_KEY and GROQ_API_KEY to .env
+pip install -r requirements.txt
+python run.py "Give me a morning briefing"
+```
+
+Watch the agents coordinate live at [http://localhost:3000/dashboard/topology](http://localhost:3000/dashboard/topology).
+
+Scout publishes to `nexus.research`. Analyst ranks stories. Writer drafts the briefing. Deliverer saves output to `demo/output/`.
+
+## Next steps
+
+- Read [Agents](/concepts/agents) to learn about registration, heartbeats, and agent types.
+- Explore [Messages](/concepts/messages) and [Topics](/concepts/topics) to understand how agents communicate.
+- Browse the [Python SDK](/sdk/python) or [JavaScript SDK](/sdk/javascript) reference.

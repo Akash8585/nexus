@@ -1,0 +1,170 @@
+---
+title: Contributing to Nexus
+description: How to report bugs, request features, submit pull requests, and find good first issues.
+---
+
+Thank you for your interest in contributing to Nexus! This guide covers the full contribution workflow — from filing an issue to getting a pull request merged.
+
+<Info>
+  Nexus is MIT-licensed open source. By contributing, you agree your contributions will be licensed under the [MIT License](https://github.com/Akash8585/nexus/blob/main/LICENSE).
+</Info>
+
+## How to report a bug
+
+Use the [GitHub bug report template](https://github.com/Akash8585/nexus/issues/new?template=bug_report.yml) and include:
+
+1. **Steps to reproduce** — exact commands or UI actions
+2. **Expected behavior** — what should happen
+3. **Actual behavior** — what happened instead (include error messages)
+4. **Environment** — OS, Docker version, Python/Node version
+5. **Logs** — relevant output from `docker compose logs` or agent stdout
+
+<Tip>
+  Check [Handling failures](/guides/error-handling) and the [FAQ](/faq) first — your issue may already be documented with a known fix.
+</Tip>
+
+### Good bug reports
+
+| Include | Example |
+| --- | --- |
+| Correlation ID | `support_1717000000` |
+| Agent name | `order-checker` |
+| API response | `401 Unauthorized` with full curl command |
+| Screenshot | Dashboard DLQ entry or failed pipeline |
+
+## How to request a feature
+
+Use the [GitHub feature request template](https://github.com/Akash8585/nexus/issues/new?template=feature_request.yml):
+
+1. Describe the problem you are trying to solve
+2. Propose a solution (optional — maintainers may suggest alternatives)
+3. Explain why this fits Nexus's scope as a coordination bus
+4. Note if you are willing to implement it yourself
+
+<Note>
+  Features out of scope for v1.0 (managed cloud, OAuth, multi-tenant) are tracked in the project roadmap. Check [open issues](https://github.com/Akash8585/nexus/issues) before filing duplicates.
+</Note>
+
+## How to submit a pull request
+
+### 1. Fork and branch
+
+```bash
+git clone https://github.com/YOUR_USERNAME/nexus.git
+cd nexus
+git checkout -b feature/my-change
+```
+
+### 2. Set up the development environment
+
+```bash
+docker compose up -d
+
+# Backend
+cd bus && pip install -r requirements.txt
+uvicorn main:app --reload --host 0.0.0.0 --port 8000
+
+# Dashboard (separate terminal)
+cd dashboard && npm install && npm run dev
+
+# SDK (if changing SDK)
+cd sdk/python && pip install -e ".[dev]"
+```
+
+See [Local deployment](/deployment/local) for the full setup guide.
+
+### 3. Make focused changes
+
+- Keep diffs small and scoped to one logical change
+- Match existing code style in the file you are editing
+- Add tests for new SDK behavior
+- Include screenshots for dashboard UI changes
+
+### 4. Run tests
+
+| Component | Command | Notes |
+| --- | --- | --- |
+| Python SDK | `cd sdk/python && pytest` | No external services required |
+| JavaScript SDK | `cd sdk/javascript && npm test` | No external services required |
+| Backend (integration) | `python bus/tests/test_context.py` | Requires Redis on `:6379` |
+| Backend (integration) | `python bus/tests/test_kafka.py` | Requires Kafka on `:9092` |
+| Dashboard | `cd dashboard && npm run build` | Type-check and production build |
+
+<Warning>
+  CI runs all SDK tests and backend integration tests on every push. Failing tests block merge.
+</Warning>
+
+### 5. Open the pull request
+
+Include in the PR description:
+
+- **What changed** and **why**
+- **Steps to verify** the change locally
+- **Screenshots** for UI changes
+- Link to the related issue (if any)
+
+Address review feedback promptly. Maintainers may request changes before merge.
+
+## Code style guidelines
+
+### Python
+
+- Follow PEP 8; use type hints where surrounding code does
+- Keep functions small and focused
+- Match naming in `bus/` and `sdk/python/` (snake_case)
+- Add tests in `sdk/python/tests/` for new SDK behavior
+
+### TypeScript / React
+
+- Use TypeScript strict mode patterns from the dashboard
+- Prefer functional components and hooks
+- Match Tailwind patterns and design tokens from `DESIGN.md` (`#00D992` primary, `#101010` canvas)
+- Run `npm run build` before submitting dashboard changes
+
+### Commits
+
+- Write clear messages in the imperative mood (e.g. "Add pipeline replay endpoint")
+- One logical change per commit when possible
+
+## Good first issues
+
+Look for the **`good first issue`** label on [GitHub Issues](https://github.com/Akash8585/nexus/issues?q=label%3A%22good+first+issue%22):
+
+| Area | Example tasks |
+| --- | --- |
+| **Documentation** | Improve MDX pages, fix typos, add examples |
+| **SDK** | Add helper methods, improve error messages |
+| **Dashboard** | UI polish, accessibility, filter improvements |
+| **Tests** | Increase coverage for edge cases |
+
+<Info>
+  Good first issues are scoped for newcomers — no deep Kafka or infrastructure knowledge required. Comment on the issue before starting so maintainers can assign it.
+</Info>
+
+## Documentation contributions
+
+Documentation source lives in `docs/content/`. To preview locally:
+
+```bash
+cd docs
+npm install
+npm run dev
+```
+
+Open `http://localhost:3001`. Use `Note`, `Warning`, `Tip`, `Info`, and `Screenshot` components from `mdx-components.tsx`.
+
+## Demo GIF for README
+
+If you record a demo GIF for the README:
+
+1. Run the demo pipeline on the dashboard
+2. Record at 960×540 (LICEcap or Kap work well)
+3. Save as `assets/demo.gif`
+4. Submit a PR updating the README reference
+
+## Next steps
+
+- [Local deployment](/deployment/local) — set up your development environment
+- [FAQ](/faq) — common questions before you start coding
+- [GitHub repository](https://github.com/Akash8585/nexus) — source code and issue tracker
+- [Build your first pipeline](/guides/build-a-pipeline) — understand the system end to end

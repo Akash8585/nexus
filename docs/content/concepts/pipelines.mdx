@@ -1,0 +1,169 @@
+---
+title: Pipelines
+description: Pipeline runs, correlation IDs, start options, states, stale detection, and replay.
+---
+
+## What is a pipeline?
+
+A **pipeline** is a sequence of [agents](/concepts/agents) working in order to complete a task. The demo pipeline:
+
+```
+Scout → Analyst → Writer → Deliverer
+```
+
+Each **pipeline run** is one execution from trigger to completion, identified by a unique **correlation ID** (e.g. `run_1780068737_a286ob`).
+
+<Info>
+  Generate one correlation ID per run and pass it to every `publish()` and `context.set()` call. All messages and context keys for that run share the same ID.
+</Info>
+
+## Correlation ID
+
+The correlation ID is the spine of a pipeline run. It links:
+
+- Every [message](/concepts/messages) published during the run
+- Every [context store](/concepts/context-store) key written during the run
+- The pipeline record in Redis (status, duration, agent list)
+
+Recommended format:
+
+```
+run_{timestamp}_{random_suffix}
+```
+
+Example from the demo:
+
+```python
+import time
+
+correlation_id = f"run_{int(time.time())}_a286ob"
+```
+
+<Tip>
+  Include the correlation ID in log output at the start of each agent handler. It makes debugging across agents much easier.
+</Tip>
+
+## Starting a pipeline
+
+Start a run via the REST API (requires API key):
+
+```
+POST /api/v1/pipelines/start
+```
+
+```json
+{
+  "correlation_id": "run_abc123",
+  "trigger_input": "Morning briefing on AI news"
+}
+```
+
+| Field | Required | Description |
+| --- | --- | --- |
+| `correlation_id` | Yes | Unique ID for this run — you generate it |
+| `trigger_input` | Yes | Human or system prompt that triggered the run |
+
+The demo `run.py` script calls this before launching agents. Nexus broadcasts a `pipeline.started` WebSocket event to the dashboard.
+
+<Note>
+  Starting a pipeline only **registers the run** in Nexus. You still need to execute your agents (e.g. `python run.py "..."`) to process messages and move the pipeline forward.
+</Note>
+
+## Pipeline run record
+
+When a run starts, Nexus stores:
+
+| Field | Description |
+| --- | --- |
+| `correlation_id` | Unique run ID |
+| `trigger_input` | Trigger text from the start request |
+| `status` | `running`, `completed`, or `failed` |
+| `started_at` / `ended_at` | ISO timestamps |
+| `duration_ms` | Total duration once completed or failed |
+| `message_count` | Messages recorded for this run |
+| `agent_names` | Agents that participated |
+| `messages` | Ordered list of message IDs |
+
+## Pipeline states
+
+| State | Meaning | How it is reached |
+| --- | --- | --- |
+| `running` | Pipeline is in progress | `POST /pipelines/start` |
+| `completed` | All stages finished successfully | Deliverer publishes to `nexus.delivery` with `delivery_complete`, or manual `POST /pipelines/{id}/complete` |
+| `failed` | Run timed out or was marked failed | No activity for 5+ minutes, or 120+ minute timeout |
+
+Complete a run manually:
+
+```
+POST /api/v1/pipelines/{correlation_id}/complete
+```
+
+```json
+{ "status": "completed" }
+```
+
+<Warning>
+  Dashboard **Rerun** only registers a new run with a fresh correlation ID — it does not execute agents. Run `python run.py "<trigger>"` to actually process the pipeline.
+</Warning>
+
+## Stale run detection
+
+Nexus automatically marks stuck runs as **failed**:
+
+| Condition | Timeout | Failure reason |
+| --- | --- | --- |
+| No messages recorded | 5 minutes | "No agent activity detected" |
+| Run never completes | 120 minutes | "Pipeline timed out before completion" |
+
+## Replay
+
+The dashboard pipeline detail page lets you **replay** messages step by step with play/pause controls. Replay is useful for:
+
+- Debugging which agent failed or produced unexpected output
+- Demo presentations showing data flow through the pipeline
+- Inspecting [context store](/concepts/context-store) values at each step
+
+Each replay step shows the message payload, sender, topic, and timestamp for that stage.
+
+## Listing and rerunning
+
+```
+GET /api/v1/pipelines?status=completed&limit=50
+GET /api/v1/pipelines/{correlation_id}
+POST /api/v1/pipelines/{correlation_id}/rerun   # admin only
+```
+
+Rerun creates a new correlation ID with the same `trigger_input` as the original run.
+
+## SDK integration
+
+Agents participate in a pipeline by using the same `correlation_id` across publish and context calls:
+
+```python
+from nexus_bus import NexusAgent
+
+agent = NexusAgent(
+    name="writer-agent",
+    agent_type="writer",
+    subscribe_topic="nexus.analysis",
+    nexus_url="http://localhost:8000",
+    api_key="nxs_live_sk_your_key_here",
+)
+
+@agent.on_message
+def handle(message):
+    correlation_id = message["correlation_id"]
+    top5 = agent.context.get(correlation_id, "top5_stories")
+    briefing = write_briefing(top5)
+    agent.context.set(correlation_id, "final_briefing", {"content": briefing})
+    agent.publish("nexus.writing", {"status": "writing_complete"}, correlation_id)
+
+agent.start()
+```
+
+## Next steps
+
+- [Context store](/concepts/context-store) — shared data keyed by correlation ID
+- [Agents](/concepts/agents) — stateless agents in a pipeline
+- [Messages](/concepts/messages) — signals that advance the pipeline
+- [Python SDK](/sdk/python) — build your own pipeline agents

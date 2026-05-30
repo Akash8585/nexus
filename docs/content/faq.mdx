@@ -1,0 +1,124 @@
+---
+title: Frequently Asked Questions
+description: Common questions about Nexus — models, Kafka, self-hosting, scaling, and pricing.
+---
+
+Quick answers to the most common Nexus questions. For deeper guides, follow the links in each answer.
+
+## How is Nexus different from just using ChatGPT?
+
+ChatGPT is a black box. Nexus is **infrastructure**. You can see every message, replay every run, and swap any agent. ChatGPT cannot coordinate multiple specialised agents reliably at scale.
+
+With Nexus you get:
+
+- A message bus with persistent, auditable communication
+- Shared context keyed by correlation ID
+- A live dashboard with topology, replay, and dead letter recovery
+- Model-agnostic agents — swap GPT-4 for Claude without changing the coordination layer
+
+See [Introduction](/introduction) and [Build a pipeline](/guides/build-a-pipeline) for a concrete example.
+
+## Why Kafka? Isn't it overkill?
+
+Kafka gives you **persistence**, **consumer groups** (auto load-balancing), and **at-least-once delivery**. Redis Streams or RabbitMQ would also work — Kafka is the production-grade choice.
+
+For multi-agent systems specifically, Kafka means:
+
+- Messages survive agent crashes
+- Multiple instances of the same agent share work automatically
+- Topics retain history for replay and debugging
+
+<Info>
+  v2.0 will add support for RabbitMQ and NATS. v1.0 is Kafka-only.
+</Info>
+
+## Can I use a different message broker?
+
+**v1.0 supports Kafka only.** v2.0 will add support for RabbitMQ and NATS.
+
+The Nexus SDK abstracts broker details — when additional brokers are supported, agent code will not need to change.
+
+## Can I use any AI model?
+
+**Yes.** Nexus is completely model-agnostic. Use GPT-4, Claude, Gemini, LLaMA, Ollama, or no AI at all.
+
+Only the inside of your agent's `handle()` function changes between providers. Registration, topics, context, and publishing stay identical.
+
+See [Using any AI model](/guides/model-agnostic) for side-by-side examples with Groq, OpenAI, Anthropic, Gemini, Ollama, and pure Python.
+
+## Does Nexus work with LangChain / AutoGen?
+
+**Yes.** Add a few lines of Nexus SDK code to your existing LangChain or AutoGen agent. The rest of your agent code stays exactly the same.
+
+```python
+from nexus_bus import NexusAgent
+
+nexus = NexusAgent(
+    name="langchain-researcher",
+    agent_type="researcher",
+    subscribe_topic="nexus.research",
+    nexus_url="http://localhost:8000",
+    api_key="nxs_live_sk_...",
+)
+
+# Your existing LangChain chain runs inside handle()
+@nexus.on_message
+def handle(message):
+    result = my_langchain_chain.invoke(message["payload"])
+    nexus.publish("nexus.analysis", result, message["correlation_id"])
+```
+
+<Tip>
+  Keep LangChain responsible for reasoning; let Nexus handle delivery, persistence, and observability.
+</Tip>
+
+## How do new users get access?
+
+The **admin invites them via the Team page**. They receive an invite link, set their password, and get access with the assigned role (Admin or Viewer).
+
+The first user to sign up at `/signup` becomes admin automatically. All subsequent users must be invited.
+
+See [Settings → Team](/dashboard/settings) for the full workflow.
+
+## Is my data sent to any external service?
+
+**No.** Nexus is fully self-hosted. All data stays on your machine or your own server.
+
+Messages, context, agent registry, and pipeline history are stored in your Kafka and Redis instances. The dashboard runs on your infrastructure. Nexus does not phone home.
+
+<Warning>
+  If your agents call external LLM APIs (OpenAI, Anthropic, etc.), that data leaves your network through the agent — not through Nexus itself.
+</Warning>
+
+## What happens if an agent crashes?
+
+Messages waiting for that agent **remain safely in Kafka**. When the agent restarts it picks up from exactly where it stopped.
+
+No manual re-queue is needed. Verify recovery on the [Agents](/dashboard/agents) page (status turns green) and the [Messages](/dashboard/messages) feed (processing resumes).
+
+See [Handling failures](/guides/error-handling) for all three failure scenarios.
+
+## Can I run multiple instances of the same agent?
+
+**Yes.** Kafka automatically distributes messages between instances of the same agent type using consumer groups.
+
+```bash
+python agents/reply-writer.py &
+python agents/reply-writer.py &
+python agents/reply-writer.py &
+```
+
+Each instance needs a **unique name** but can share the same `agent_type` and subscribe topic. See [Scaling your agents](/guides/scaling).
+
+## Is Nexus free?
+
+**Yes.** Nexus is open source under the **MIT license**. Free forever.
+
+No usage fees, no seat limits, no cloud lock-in. Self-host on your own hardware or any cloud provider.
+
+## Next steps
+
+- [Quickstart](/quickstart) — run Nexus locally in five steps
+- [Build your first pipeline](/guides/build-a-pipeline) — end-to-end customer support example
+- [Dashboard Overview](/dashboard/overview) — tour all 14 pages
+- [Contributing](/contributing) — report bugs, request features, submit PRs

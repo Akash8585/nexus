@@ -1,0 +1,88 @@
+---
+title: Topology
+description: Live D3.js graph showing agents, topics, and message flow in real time.
+---
+
+The **Topology** page renders a live graph of your multi-agent system. Agents appear as nodes; topics appear as edges connecting publishers to subscribers. The graph updates automatically as agents register, publish messages, and deregister.
+
+<Screenshot caption="Live topology graph with Scout, Analyst, Writer, and Deliverer nodes connected through nexus.* topics" />
+
+## What it shows
+
+| Element | Visual | Meaning |
+| --- | --- | --- |
+| **Agent node** | Circle with agent name | A registered agent (color = status) |
+| **Topic edge** | Line between nodes | Message flow direction (publisher → topic → subscriber) |
+| **Active pulse** | Green glow | Agent sent or received a message recently |
+| **Node count** | Badge | Number of instances for the same agent type |
+
+The graph reads from the agent registry and recent message activity. When you run the demo pipeline or your customer support agents, you see the full chain appear within seconds.
+
+<Info>
+  Topology reflects **registered agents**, not just running processes. An agent must call `register()` (or `agent.start()`) to appear on the graph.
+</Info>
+
+## How to use it
+
+### 1. Start your agents
+
+Run at least two agents that publish and consume on different topics:
+
+```bash
+python agents/complaint-detector.py &
+python agents/order-checker.py &
+```
+
+Open **Topology** at `http://localhost:3000/dashboard/topology`.
+
+### 2. Trigger a pipeline
+
+Start a run and publish an initial message (see [Build a pipeline](/guides/build-a-pipeline)):
+
+```bash
+curl -s -X POST "$NEXUS_URL/api/v1/pipelines/start" \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"correlation_id": "topo_demo_001", "trigger_input": "Test topology view"}'
+```
+
+Watch edges animate as messages flow between agents.
+
+### 3. Identify bottlenecks
+
+If one node stays idle while messages pile up on its incoming topic, that stage is the bottleneck. Consider [scaling](/guides/scaling) that agent type.
+
+### 4. Debug missing agents
+
+If an expected agent does not appear:
+
+- Confirm it called `register()` successfully
+- Check the **Agents** page for status (dead vs active)
+- Verify the API key is valid and the agent name is unique
+
+<Tip>
+  Keep Topology open on a second monitor while developing. It is the fastest way to confirm agents are wired correctly.
+</Tip>
+
+## Multiple instances
+
+When you run several copies of the same agent (e.g. three `reply-writer` instances), Topology shows each as a separate node connected to the same topic. This confirms [consumer group](/guides/scaling) load balancing is working.
+
+<Warning>
+  Dead agents (no heartbeat for 30+ seconds) appear with a red status indicator. Restart the process and the node turns green on re-registration.
+</Warning>
+
+## Keyboard and interactions
+
+| Action | Result |
+| --- | --- |
+| **Click a node** | Opens Agent Detail for that agent |
+| **Hover an edge** | Shows the topic name |
+| **Scroll / drag** | Pan and zoom the graph canvas |
+
+## Next steps
+
+- [Messages](/dashboard/messages) — inspect individual messages flowing through the graph
+- [Agents](/dashboard/agents) — full registry with filters and status colors
+- [Scaling your agents](/guides/scaling) — run multiple instances and see them on the graph
+- [Build your first pipeline](/guides/build-a-pipeline) — Step 7 walks through the topology view

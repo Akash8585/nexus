@@ -1,0 +1,116 @@
+---
+title: Handling failures
+description: Three common failure scenarios in Nexus pipelines and how to recover from each.
+---
+
+Production multi-agent systems fail. Nexus is designed so failures are **visible, recoverable, and non-destructive**. This guide covers three scenarios you will encounter and the exact steps to resolve each.
+
+## Scenario 1 — Agent crashes mid-task
+
+**What happens:** An agent process dies while processing a message — OOM kill, unhandled exception, laptop closed, deployment restart.
+
+**Why data is safe:** Messages live in Kafka, not in agent memory. The message waiting for that agent remains in the topic until a consumer picks it up.
+
+**Recovery steps:**
+
+1. Fix the bug or restart the agent process
+2. The agent re-registers and resumes its consume loop
+3. Unprocessed messages are delivered on the next poll cycle
+4. Verify on **Messages** (`/dashboard/messages`) that processing continues
+
+```bash
+# Restart the crashed agent
+python agents/order-checker.py
+```
+
+<Info>
+  No manual re-queue is needed. Kafka retains messages according to the topic retention policy (default 7 days for custom topics).
+</Info>
+
+<Tip>
+  Add try/except inside `handle()` and log the correlation ID on failure. That makes dashboard debugging much faster.
+</Tip>
+
+---
+
+## Scenario 2 — Message fails after 3 retries
+
+**What happens:** An agent throws an error on the same message three times (bad JSON, missing context key, API timeout). Nexus moves the message to the **dead letter queue (DLQ)**.
+
+**Why it matters:** Without a DLQ, one poison message would block the entire topic indefinitely.
+
+**Recovery steps:**
+
+1. Open **Dead Letter Queue** → `/dashboard/deadletter`
+2. Click the failed entry — read the error, original topic, and payload
+3. Fix the root cause (agent code, missing context, invalid payload)
+4. Click **Retry** to re-publish the message to its original topic
+5. Confirm the agent processes it successfully on the Messages feed
+
+<Warning>
+  **Discard** permanently removes a DLQ entry. Only discard when the message is truly invalid (malformed payload, test data) and will never succeed on retry.
+</Warning>
+
+Example: a `reply-writer` fails because `policy` context was never written:
+
+```python
+@agent.on_message
+def handle(message: dict[str, Any]) -> None:
+    correlation_id = message["correlation_id"]
+    policy = agent.context.get(correlation_id, "policy")
+
+    if policy is None:
+        raise ValueError(f"Missing policy context for {correlation_id}")
+
+    # ... generate reply ...
+```
+
+After fixing `policy-checker` to always write context, retry the DLQ message from the dashboard.
+
+---
+
+## Scenario 3 — All agents of a type are down
+
+**What happens:** Every instance of `order-checker` is offline — deployment mistake, bad release, weekend shutdown.
+
+**Why data is safe:** Messages accumulate in Kafka. Nothing is dropped while consumers are offline (within retention limits).
+
+**Recovery steps:**
+
+1. Check **Agents** page — all instances show red (dead) or grey (idle)
+2. Start at least one instance: `python agents/order-checker.py`
+3. Agents register and begin consuming the backlog automatically
+4. Monitor **Pipeline History** — runs that stalled will resume as messages flow
+5. For urgent runs, use **Rerun** on stalled pipelines after agents are back
+
+<Screenshot caption="Agents page showing all order-checker instances as dead with messages queued in Kafka" />
+
+<Note>
+  Backlog processing time depends on queue depth and agent throughput. Scale instances (see [Scaling](/guides/scaling)) if the backlog is large.
+</Note>
+
+## Failure prevention patterns
+
+| Pattern | Description |
+| --- | --- |
+| **Idempotent handlers** | Processing the same message twice should not corrupt state |
+| **Context validation** | Check required context keys exist before calling external APIs |
+| **Graceful shutdown** | Call `agent.stop()` on SIGTERM so in-flight work can finish |
+| **Heartbeats** | Keep agents running — dead agents are flagged within ~30 seconds |
+| **Structured logging** | Always log `correlation_id` in every log line |
+
+## Dashboard tools for debugging
+
+| Tool | Use when |
+| --- | --- |
+| [Pipeline Detail](/dashboard/pipelines) | Step through a failed run message by message |
+| [Dead Letter Queue](/dashboard/deadletter) | Retry or discard poison messages |
+| [Agent Detail](/dashboard/agents) | Inspect error count and DLQ entries for one agent |
+| [Messages](/dashboard/messages) | Filter by topic or agent to isolate the failure point |
+
+## Next steps
+
+- [Dashboard: Dead Letter Queue](/dashboard/deadletter) — retry and discard from the UI
+- [Scaling your agents](/guides/scaling) — prevent overload by adding instances
+- [FAQ: What happens if an agent crashes?](/faq) — quick reference answer
+- [Build your first pipeline](/guides/build-a-pipeline) — Step 8 covers debugging failed runs

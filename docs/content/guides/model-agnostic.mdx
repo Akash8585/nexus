@@ -1,0 +1,232 @@
+---
+title: Using any AI model
+description: Nexus is model-agnostic — swap Groq, OpenAI, Anthropic, Gemini, Ollama, or pure Python without changing coordination code.
+---
+
+Nexus does not care which LLM (if any) powers your agents. The **Nexus SDK code stays identical** across providers — only the inside of `handle()` changes. Swap models without touching topics, context, or the dashboard.
+
+<Tip>
+  Key message: **Nexus is model-agnostic.** Your coordination layer is stable; your model choice is a local decision inside each agent.
+</Tip>
+
+## Shared agent skeleton
+
+Every variant below uses the same registration, subscription, and publish pattern:
+
+```python
+from typing import Any
+
+from nexus_bus import NexusAgent
+
+agent = NexusAgent(
+    name="reply-writer",
+    agent_type="writer",
+    subscribe_topic="nexus.support.policy",
+    nexus_url="http://localhost:8000",
+    api_key="nxs_live_sk_your_key_here",
+)
+
+
+@agent.on_message
+def handle(message: dict[str, Any]) -> None:
+    correlation_id = message["correlation_id"]
+    policy = agent.context.get(correlation_id, "policy") or {}
+
+    # ↓ Only this block changes between providers ↓
+    reply_text = generate_reply(policy)
+
+    agent.context.set(correlation_id, "draft_reply", reply_text)
+    agent.publish(
+        "nexus.support.reply",
+        {"status": "draft_ready", "preview": reply_text[:120]},
+        correlation_id,
+    )
+
+
+if __name__ == "__main__":
+    agent.start()
+```
+
+<Info>
+  Context reads, publishes, and correlation IDs are identical regardless of provider. That is what makes Nexus model-agnostic.
+</Info>
+
+## Groq (LLaMA)
+
+```python
+import json
+import os
+
+from groq import Groq
+
+client = Groq(api_key=os.environ["GROQ_API_KEY"])
+
+
+def generate_reply(policy: dict) -> str:
+    response = client.chat.completions.create(
+        model="llama-3.3-70b-versatile",
+        messages=[
+            {
+                "role": "user",
+                "content": (
+                    f"Write a polite support reply for this policy decision: "
+                    f"{json.dumps(policy)}"
+                ),
+            }
+        ],
+        temperature=0.4,
+    )
+    return response.choices[0].message.content or ""
+```
+
+## OpenAI (GPT-4)
+
+```python
+import json
+import os
+
+from openai import OpenAI
+
+client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
+
+
+def generate_reply(policy: dict) -> str:
+    response = client.chat.completions.create(
+        model="gpt-4o",
+        messages=[
+            {
+                "role": "system",
+                "content": "You are a concise, empathetic customer support agent.",
+            },
+            {
+                "role": "user",
+                "content": f"Policy outcome: {json.dumps(policy)}",
+            },
+        ],
+    )
+    return response.choices[0].message.content or ""
+```
+
+## Anthropic (Claude)
+
+```python
+import json
+import os
+
+import anthropic
+
+client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
+
+
+def generate_reply(policy: dict) -> str:
+    message = client.messages.create(
+        model="claude-sonnet-4-20250514",
+        max_tokens=512,
+        messages=[
+            {
+                "role": "user",
+                "content": f"Draft a support email for: {json.dumps(policy)}",
+            }
+        ],
+    )
+    return message.content[0].text
+```
+
+## Google Gemini
+
+```python
+import json
+import os
+
+import google.generativeai as genai
+
+genai.configure(api_key=os.environ["GEMINI_API_KEY"])
+model = genai.GenerativeModel("gemini-2.0-flash")
+
+
+def generate_reply(policy: dict) -> str:
+    response = model.generate_content(
+        f"Write a customer support reply based on: {json.dumps(policy)}"
+    )
+    return response.text or ""
+```
+
+## Ollama (local, no API key)
+
+```python
+import json
+
+import httpx
+
+
+def generate_reply(policy: dict) -> str:
+    response = httpx.post(
+        "http://localhost:11434/api/chat",
+        json={
+            "model": "llama3.2",
+            "messages": [
+                {
+                    "role": "user",
+                    "content": f"Support reply for: {json.dumps(policy)}",
+                }
+            ],
+            "stream": False,
+        },
+        timeout=120.0,
+    )
+    response.raise_for_status()
+    return response.json()["message"]["content"]
+```
+
+<Note>
+  Ollama runs entirely on your machine. Combined with self-hosted Nexus, no customer data leaves your network.
+</Note>
+
+## No AI (pure Python logic)
+
+```python
+def generate_reply(policy: dict) -> str:
+    decision = policy.get("decision", "review_required")
+    order_id = policy.get("order_id", "unknown")
+
+    templates = {
+        "refund_approved": (
+            f"Hi — we've approved a refund for order #{order_id}. "
+            "Funds will appear within 5–7 business days."
+        ),
+        "refund_denied": (
+            f"Hi — after reviewing order #{order_id}, we're unable to "
+            "approve a refund under our current policy. Reply if you'd "
+            "like to escalate."
+        ),
+        "review_required": (
+            f"Hi — we're reviewing order #{order_id} and will follow up "
+            "within 24 hours."
+        ),
+    }
+    return templates.get(decision, templates["review_required"])
+```
+
+<Warning>
+  Not every pipeline stage needs an LLM. Use rules for classification and lookups; reserve models for natural-language generation where it adds value.
+</Warning>
+
+## Mixing providers in one pipeline
+
+Different agents in the same pipeline can use different models:
+
+| Agent | Provider | Why |
+| --- | --- | --- |
+| `complaint-detector` | Rules / no AI | Fast, deterministic classification |
+| `policy-checker` | Claude | Nuanced policy interpretation |
+| `reply-writer` | GPT-4 | Polished customer-facing prose |
+| `email-sender` | No AI | SMTP delivery only |
+
+Each agent registers independently. The topology graph shows all four regardless of which model they use internally.
+
+## Next steps
+
+- [Build your first pipeline](/guides/build-a-pipeline) — end-to-end customer support example
+- [Scaling your agents](/guides/scaling) — run multiple writer instances behind one topic
+- [Handling failures](/guides/error-handling) — what happens when an LLM API times out
+- [Dashboard: Agents](/dashboard/agents) — monitor agent health across mixed providers

@@ -1,0 +1,275 @@
+---
+title: JavaScript SDK
+description: Full reference for the nexus-bus npm package — installation, NexusAgent API, Groq example, and error handling.
+---
+
+## Installation
+
+```bash
+npm install nexus-bus
+```
+
+Local development from this repository:
+
+```bash
+cd sdk/javascript
+npm install
+npm run build
+```
+
+<Note>
+  Requires Node.js 18 or later. The SDK uses `axios` for HTTP and runs heartbeat and poll loops with `setInterval`.
+</Note>
+
+## Quickstart
+
+```typescript
+import { NexusAgent } from "nexus-bus";
+
+const agent = new NexusAgent({
+  name: "writer-agent",
+  agentType: "writer",
+  subscribeTopic: "nexus.analysis",
+  nexusUrl: "http://localhost:8000",
+  apiKey: "nxs_live_sk_your_key_here",
+});
+
+agent.onMessage(async (message) => {
+  const top5 = await agent.context.get(message.correlation_id, "top5_stories");
+  await agent.publish(
+    "nexus.writing",
+    { status: "writing_complete" },
+    message.correlation_id,
+  );
+});
+
+await agent.start();
+```
+
+## NexusAgent
+
+### Constructor options
+
+```typescript
+new NexusAgent({
+  name: string;
+  agentType: string;
+  subscribeTopic: string;
+  nexusUrl: string;
+  apiKey: string;
+  heartbeatIntervalMs?: number;  // default 10000
+  pollIntervalMs?: number;       // default 3000
+  httpClient?: AxiosInstance;    // optional custom HTTP client
+})
+```
+
+| Option | Type | Default | Description |
+| --- | --- | --- | --- |
+| `name` | `string` | — | Unique agent name in the registry |
+| `agentType` | `string` | — | Role label (e.g. `writer`, `analyst`) |
+| `subscribeTopic` | `string` | — | Topic to consume messages from |
+| `nexusUrl` | `string` | — | Base URL of Nexus bus (trailing slash stripped) |
+| `apiKey` | `string` | — | Nexus API key (`nxs_live_sk_...`) |
+| `heartbeatIntervalMs` | `number` | `10000` | Milliseconds between heartbeats |
+| `pollIntervalMs` | `number` | `3000` | Milliseconds between message polls |
+
+### Methods
+
+| Method | Returns | Description |
+| --- | --- | --- |
+| `register()` | `Promise<void>` | Register with Nexus |
+| `deregister()` | `Promise<void>` | Remove agent from registry |
+| `publish(topic, payload, correlationId)` | `Promise<NexusMessage>` | Publish a message |
+| `onMessage(callback)` | `void` | Register async message handler |
+| `start({ skipExisting? })` | `Promise<void>` | Register, heartbeat, consume |
+| `stop()` | `Promise<void>` | Stop loops and deregister |
+
+<Tip>
+  Pass `{ skipExisting: true }` to `start()` when restarting an agent that should ignore messages published before it came online.
+</Tip>
+
+### `agent.context` — ContextClient
+
+| Method | Returns | Description |
+| --- | --- | --- |
+| `get(correlationId, key)` | `Promise<T \| null>` | Read one key; returns `null` if not found |
+| `set(correlationId, key, value, ttlHours?)` | `Promise<{ status, key }>` | Write one key with optional TTL |
+| `getAll(correlationId)` | `Promise<Record<string, unknown>>` | All keys for a pipeline run |
+
+## NexusMessage
+
+```typescript
+type NexusMessage = {
+  id: string;
+  topic: string;
+  correlation_id: string;
+  sender_agent: string;
+  payload: Record<string, unknown>;
+  timestamp?: string;
+};
+```
+
+## Full Groq example
+
+An analyst agent that listens on `nexus.research`, reads headlines from context, ranks them with Groq, and publishes to `nexus.analysis`:
+
+```typescript
+import Groq from "groq-sdk";
+import { NexusAgent, NexusAuthError, NexusPublishError } from "nexus-bus";
+
+const NEXUS_URL = process.env.NEXUS_URL ?? "http://localhost:8000";
+const NEXUS_API_KEY = process.env.NEXUS_API_KEY!;
+const GROQ_API_KEY = process.env.GROQ_API_KEY!;
+const MODEL = "llama-3.3-70b-versatile";
+
+const agent = new NexusAgent({
+  name: "analyst-agent",
+  agentType: "analyst",
+  subscribeTopic: "nexus.research",
+  nexusUrl: NEXUS_URL,
+  apiKey: NEXUS_API_KEY,
+});
+
+const groq = new Groq({ apiKey: GROQ_API_KEY });
+
+async function rankStories(headlines: Record<string, unknown>[]): Promise<unknown[]> {
+  const response = await groq.chat.completions.create({
+    model: MODEL,
+    messages: [
+      {
+        role: "user",
+        content: [
+          "Rank the top 5 most important stories from this JSON:",
+          JSON.stringify(headlines, null, 2),
+          "Return ONLY a JSON array of 5 objects with fields:",
+          "rank, title, source, summary, importance.",
+        ].join("\n"),
+      },
+    ],
+    temperature: 0.3,
+  });
+
+  const content = response.choices[0]?.message?.content ?? "[]";
+  return (JSON.parse(content) as unknown[]).slice(0, 5);
+}
+
+agent.onMessage(async (message) => {
+  const { correlation_id } = message;
+  const headlines = await agent.context.get<Record<string, unknown>[]>(
+    correlation_id,
+    "raw_headlines",
+  );
+  if (!headlines?.length) return;
+
+  const top5 = await rankStories(headlines);
+  await agent.context.set(correlation_id, "top5_stories", top5);
+  await agent.publish(
+    "nexus.analysis",
+    { story_count: top5.length, status: "analysis_complete" },
+    correlation_id,
+  );
+});
+
+async function main() {
+  try {
+    await agent.start();
+    console.log("Analyst listening on nexus.research…");
+  } catch (error) {
+    if (error instanceof NexusAuthError) {
+      console.error("Invalid API key — check NEXUS_API_KEY");
+    } else if (error instanceof NexusPublishError) {
+      console.error("Publish failed:", error.message);
+    } else {
+      throw error;
+    }
+  }
+}
+
+process.on("SIGINT", async () => {
+  await agent.stop();
+  process.exit(0);
+});
+
+main();
+```
+
+<Info>
+  Install Groq separately: `npm install groq-sdk`. Store LLM output in context via `agent.context.set()`; publish only status metadata in messages.
+</Info>
+
+## Error handling
+
+| Error | When thrown |
+| --- | --- |
+| `NexusAuthError` | Invalid or unauthorized API key |
+| `NexusConnectionError` | Cannot reach the Nexus bus API |
+| `NexusPublishError` | Message publish rejected by the bus |
+| `NexusConsumeError` | Message polling failed |
+
+```typescript
+import { NexusAgent, NexusAuthError, NexusPublishError } from "nexus-bus";
+
+const agent = new NexusAgent({
+  name: "scout-agent",
+  agentType: "researcher",
+  subscribeTopic: "nexus.research",
+  nexusUrl: "http://localhost:8000",
+  apiKey: "nxs_live_sk_your_key_here",
+});
+
+try {
+  await agent.register();
+  await agent.publish("nexus.research", { status: "ok" }, "run_123");
+} catch (error) {
+  if (error instanceof NexusAuthError) {
+    console.error("Check your API key in the Nexus dashboard");
+  } else if (error instanceof NexusPublishError) {
+    console.error("Publish failed:", error.message);
+  }
+} finally {
+  await agent.stop();
+}
+```
+
+<Warning>
+  Always call `await agent.stop()` on shutdown to deregister cleanly. Unclosed agents remain in the registry until the 30-second heartbeat timeout.
+</Warning>
+
+## Environment variables
+
+| Variable | Required | Description |
+| --- | --- | --- |
+| `NEXUS_URL` | Yes | Base URL of the Nexus bus (e.g. `http://localhost:8000`) |
+| `NEXUS_API_KEY` | Yes | API key from dashboard **Settings → API Keys** |
+| `GROQ_API_KEY` | For LLM agents | Groq API key for chat completions |
+| `OPENAI_API_KEY` | Optional | Alternative LLM provider |
+
+Example `.env` for local development:
+
+```bash
+NEXUS_URL=http://localhost:8000
+NEXUS_API_KEY=nxs_live_sk_your_key_here
+GROQ_API_KEY=gsk_your_groq_key_here
+```
+
+Load with `dotenv` or your runtime's native env support:
+
+```typescript
+import "dotenv/config";
+```
+
+## Development
+
+```bash
+cd sdk/javascript
+npm install
+npm test
+npm run build
+```
+
+## Next steps
+
+- [Agents](/concepts/agents) — lifecycle and stateless design
+- [Context store](/concepts/context-store) — `agent.context.get()` / `set()` patterns
+- [Python SDK](/sdk/python) — Python equivalent
+- [Quickstart](/quickstart) — run Nexus locally end to end

@@ -1,0 +1,118 @@
+---
+title: Scaling your agents
+description: Run multiple agent instances, understand consumer groups, and know when to scale.
+---
+
+As message volume grows, a single agent instance becomes the bottleneck. Nexus + Kafka let you run **multiple instances of the same agent** without changing coordination code — Kafka distributes work through **consumer groups**.
+
+## Run multiple instances
+
+Start three writer agents in separate terminals (or background processes):
+
+```bash
+# Terminal 1
+python agents/reply-writer.py &
+
+# Terminal 2
+python agents/reply-writer.py &
+
+# Terminal 3
+python agents/reply-writer.py &
+```
+
+Each instance registers with the same `agent_type` but a **unique name** (e.g. `reply-writer-1`, `reply-writer-2`, `reply-writer-3`). All subscribe to the same topic (`nexus.support.policy`).
+
+<Tip>
+  Use process managers (systemd, Docker Compose `deploy.replicas`, or Kubernetes) to keep instances running and restart them on crash.
+</Tip>
+
+## Consumer groups explained
+
+Kafka assigns each partition of a topic to **one consumer in a group**. When you run multiple instances:
+
+1. All instances in the same consumer group share incoming messages
+2. Kafka load-balances — each message goes to exactly one instance
+3. If an instance dies, its partitions rebalance to survivors
+4. Messages are **not lost** — they remain in Kafka until acknowledged
+
+```
+                    ┌─────────────────┐
+  nexus.support.policy ──▶│  Kafka partition │
+                    └────────┬────────┘
+                             │
+              ┌──────────────┼──────────────┐
+              ▼              ▼              ▼
+        reply-writer-1  reply-writer-2  reply-writer-3
+              │              │              │
+              └──────────────┴──────────────┘
+                             │
+                    nexus.support.reply
+```
+
+<Info>
+  The Nexus Python SDK polls the REST API rather than connecting to Kafka directly. Consumer group semantics are enforced by the bus layer — agents still benefit from horizontal scaling when the bus is configured with multiple partitions.
+</Info>
+
+## Increase topic partitions
+
+For true parallel consumption, create topics with more than one partition:
+
+```bash
+curl -s -X POST "$NEXUS_URL/api/v1/topics" \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "nexus.support.policy", "partitions": 3, "retention_days": 7}'
+```
+
+<Warning>
+  You cannot reduce partition count after creation. Plan partition count based on expected peak concurrency.
+</Warning>
+
+## See scaling on the topology graph
+
+Open **Topology** (`/dashboard/topology`) after starting multiple instances. You will see:
+
+- Multiple nodes for the same agent type (e.g. three `reply-writer` nodes)
+- Edges from the shared subscribe topic to each instance
+- Live status colors — green (active), grey (idle), red (dead)
+
+<Screenshot caption="Topology graph with three reply-writer instances consuming from nexus.support.policy" />
+
+## When to scale
+
+Scale an agent type when you observe any of these signals:
+
+| Signal | What it means | Action |
+| --- | --- | --- |
+| **Processing lag** | Messages arrive faster than agents process them | Add instances |
+| **Single-agent bottleneck** | One stage is consistently slow (e.g. LLM calls) | Scale that stage only |
+| **High priority parallelism** | Urgent tasks must not wait behind bulk work | Add instances + consider a dedicated topic |
+| **CPU / memory saturation** | Agent process hits resource limits | Add instances or upgrade hardware |
+| **DLQ growth** | Timeouts from overloaded agents | Scale first, then investigate errors |
+
+<Note>
+  Do not scale every agent uniformly. Profile your pipeline — often one stage (typically the LLM writer) is the bottleneck while classifiers and lookups are fast.
+</Note>
+
+## Scaling checklist
+
+1. **Identify the bottleneck** — check Pipeline History for stages with long gaps between messages
+2. **Increase partitions** — match or exceed the number of instances you plan to run
+3. **Use unique agent names** — `writer-1`, `writer-2`, not duplicate `writer`
+4. **Monitor the dashboard** — watch Messages feed and agent heartbeats after scaling
+5. **Load test** — trigger multiple pipeline runs concurrently and verify even distribution
+
+## What not to scale (yet)
+
+- **Nexus Bus API** — single instance handles moderate load; scale Kafka and agents first
+- **Redis context store** — context reads/writes are fast; bottleneck is rarely here
+- **Dashboard** — observability UI; scaling agents reduces the need to watch it constantly
+
+For production VPS deployments, see [Production deployment](/deployment/production).
+
+## Next steps
+
+- [Handling failures](/guides/error-handling) — what happens when a scaled instance crashes mid-task
+- [Dashboard: Topology](/dashboard/topology) — visualize multiple instances live
+- [Dashboard: Agents](/dashboard/agents) — filter by status and type
+- [Build your first pipeline](/guides/build-a-pipeline) — start with a single instance, then scale

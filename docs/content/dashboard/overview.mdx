@@ -1,0 +1,83 @@
+---
+title: Dashboard Overview
+description: Tour all 14 dashboard pages — what each one shows and when to use it.
+---
+
+The Nexus dashboard is a Next.js app at `http://localhost:3000` that gives you live visibility into agents, messages, pipelines, and system health. Every page updates in real time via WebSocket events.
+
+<Screenshot caption="Nexus dashboard overview with system health cards and live message feed" />
+
+## All 14 pages
+
+| Page | Route | Description |
+| --- | --- | --- |
+| **Landing** | `/` | Marketing home with features, quick start, and docs link |
+| **Dashboard** | `/dashboard` | System health at a glance — active agents, messages today, recent pipelines |
+| **Topology** | `/dashboard/topology` | Live D3.js graph of agents, topics, and message flow |
+| **Messages** | `/dashboard/messages` | Real-time message feed with topic and agent filters |
+| **Agents** | `/dashboard/agents` | All registered agents with status, type, and heartbeat |
+| **Agent Detail** | `/dashboard/agents/[name]` | One agent in depth — message history, errors, DLQ entries |
+| **Pipeline History** | `/dashboard/pipelines` | All pipeline runs with status, duration, and trigger input |
+| **Pipeline Detail** | `/dashboard/pipelines/[correlationId]` | One run with step-by-step replay and message timeline |
+| **Topics** | `/dashboard/topics` | Kafka topic management — create, inspect, delete custom topics |
+| **Dead Letter Queue** | `/dashboard/deadletter` | Failed messages with retry and discard actions |
+| **API Keys** | `/dashboard/settings/api-keys` | Generate and revoke agent credentials |
+| **Team** | `/dashboard/settings/team` | Invite users and assign Admin or Viewer roles |
+| **Settings** | `/dashboard/settings` | System configuration, health check, message export, TTL flush |
+| **Login / Signup** | `/login`, `/signup` | Authenticate — first signup user becomes admin automatically |
+
+<Info>
+  The dashboard requires authentication. Agents connect with API keys; humans log in with email and password.
+</Info>
+
+## Role-based access
+
+| Role | Can view | Can admin |
+| --- | --- | --- |
+| **Admin** | All pages | Create topics, retry DLQ, manage keys, invite team, rerun pipelines |
+| **Viewer** | All pages | Read-only — no key generation, DLQ actions, or team invites |
+
+<Tip>
+  The first user to sign up at `/signup` is promoted to admin automatically. Invite teammates from **Settings → Team**.
+</Tip>
+
+## WebSocket live updates
+
+The top bar shows a connection indicator (green = connected). Live events include:
+
+- `agent.registered` / `agent.deregistered`
+- `message.published`
+- `pipeline.started` / `pipeline.completed` / `pipeline.failed`
+
+Pages like Messages, Topology, and Dashboard subscribe to these events and refresh without a full page reload.
+
+## System health indicators
+
+The dashboard top bar displays status for three backend services:
+
+| Service | Healthy | Unhealthy |
+| --- | --- | --- |
+| **API** | Nexus Bus responding at `:8000` | Red — check `docker compose ps` |
+| **Kafka** | Broker reachable | Red — check Kafka container logs |
+| **Redis** | Context store reachable | Red — check Redis container logs |
+
+<Warning>
+  If all three indicators are red, the stack is down. Run `docker compose up -d` and refresh the page.
+</Warning>
+
+## Page guides
+
+Detailed documentation for each major section:
+
+- [Topology](/dashboard/topology) — live agent graph
+- [Messages](/dashboard/messages) — real-time feed and filters
+- [Pipelines](/dashboard/pipelines) — history, replay, rerun
+- [Agents](/dashboard/agents) — registry and status colors
+- [Dead Letter Queue](/dashboard/deadletter) — retry and discard
+- [Settings](/dashboard/settings) — API keys, team, TTL
+
+## Next steps
+
+- [Topology](/dashboard/topology) — visualize your first pipeline
+- [Build your first pipeline](/guides/build-a-pipeline) — create agents and watch them on the dashboard
+- [Local deployment](/deployment/local) — start the full stack with Docker Compose

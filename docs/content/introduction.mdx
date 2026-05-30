@@ -1,0 +1,72 @@
+---
+title: What is Nexus?
+description: The coordination bus for multi-agent AI systems — what it is, what it is not, and who it is for.
+---
+
+## 1.1 — The one-liner
+
+Nexus is an open-source coordination bus for multi-agent AI systems.
+
+## 1.2 — The problem
+
+You've built two AI agents. One searches for data. One writes a report. Now you need them to work together. So you write custom code to connect them directly. Then you add a third agent. More custom code. A fourth. More. By agent five you have a spaghetti mess of direct connections, no error handling, and if any agent crashes everything breaks.
+
+Beyond the messy code, three things are missing. First — no persistence. If your writer agent crashes mid-task, the research it was processing is gone forever. Second — no visibility. When something goes wrong, you have no idea which agent failed, what it received, or what it sent. Third — no standard. Every developer solves this differently, every time, from scratch.
+
+Nexus is the missing layer. A message bus that sits between your agents and handles all communication. Agents publish messages to topics. Other agents consume them. Messages persist even if agents crash. Every message, every agent, every pipeline run is visible on a live dashboard. And because agents only talk to Nexus — never directly to each other — you can add, remove, or swap any agent without touching the rest.
+
+## 1.3 — What Nexus is NOT
+
+- **Not an AI model or LLM** — Nexus does not generate anything. It coordinates.
+- **Not locked to any framework** — works with LangChain, AutoGen, CrewAI, plain Python, plain JavaScript, or no AI framework at all.
+- **Not a cloud service** — v1.0 is fully self-hosted. Your data never leaves your machine.
+
+<Info>
+  Nexus is infrastructure, not intelligence. Bring your own models, prompts, and agent logic.
+</Info>
+
+## 1.4 — Who is it for?
+
+Nexus is for developers who have built AI agents and now need those agents to work together reliably. If you are building a multi-step AI pipeline — research → analysis → writing → delivery — Nexus is the infrastructure that connects the steps.
+
+## 1.5 — The architecture in one diagram
+
+```
+Agent A          Agent B          Agent C
+(researcher)     (writer)         (deliverer)
+    |                |                |
+    |   publish      |   publish      |
+    └──→ Nexus Bus ──┘──→ Nexus Bus ──┘
+              |
+        ┌─────┴──────┐
+        |             |
+      Kafka         Redis
+   (messages)     (context)
+        |
+   Dashboard
+  (observability)
+```
+
+Agents never call each other directly. They publish to Kafka topics and read shared state from Redis. The dashboard shows every message and agent in real time.
+
+<Tip>
+  The included demo pipeline (Scout → Analyst → Writer → Deliverer) follows this exact pattern.
+</Tip>
+
+## 1.6 — Quick numbers
+
+<StatGrid>
+  <StatCard value="5 lines" label="to connect any agent" />
+  <StatCard value="< 30 min" label="from clone to running demo" />
+  <StatCard value="100%" label="message delivery guaranteed" />
+  <StatCard value="0" label="vendor lock-in" />
+</StatGrid>
+
+<Note>
+  At-least-once delivery is backed by Kafka persistence. Messages survive agent crashes and restarts.
+</Note>
+
+## Next steps
+
+- Follow the [Quickstart](/quickstart) to run Nexus locally and connect your first agent.
+- Read [Agents](/concepts/agents) to understand registration, heartbeats, and the agent lifecycle.

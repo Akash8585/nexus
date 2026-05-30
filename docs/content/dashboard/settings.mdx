@@ -1,0 +1,127 @@
+---
+title: Settings
+description: API keys, team management, system health, message export, and TTL configuration.
+---
+
+The **Settings** section covers system configuration, credentials, team access, and data retention. Admins manage keys and invites; all users can view system health.
+
+<Screenshot caption="Settings page showing API health, Kafka broker, Redis URL, and data management options" />
+
+## Settings hub
+
+Open `/dashboard/settings` for the main settings page:
+
+| Section | Description |
+| --- | --- |
+| **System health** | API, Kafka, and Redis connection status |
+| **Connection info** | Broker URLs and API endpoint (read-only) |
+| **Data management** | Export messages, flush expired data |
+| **Quick links** | Navigate to API Keys and Team sub-pages |
+
+<Info>
+  Environment-specific values (Kafka broker, Redis URL) are loaded from the bus backend. Change them in `docker-compose.yml` or `.env`, not in the dashboard UI.
+</Info>
+
+## API Keys
+
+Open `/dashboard/settings/api-keys` to manage agent credentials.
+
+### Generate a key
+
+1. Click **Generate key**
+2. Enter a descriptive name (e.g. `production-agents`)
+3. Copy the full key immediately — it is shown **only once**
+4. Keys start with `nxs_live_sk_`
+
+<Tip>
+  Create separate keys per environment (dev, staging, production) so you can revoke one without affecting others.
+</Tip>
+
+### Use a key in agents
+
+```python
+agent = NexusAgent(
+    name="my-agent",
+    agent_type="researcher",
+    subscribe_topic="nexus.research",
+    nexus_url="http://localhost:8000",
+    api_key="nxs_live_sk_...",  # paste generated key
+)
+```
+
+Or pass it in curl:
+
+```bash
+curl -H "Authorization: Bearer nxs_live_sk_..." ...
+```
+
+### Revoke a key
+
+Click **Revoke** next to any key. Active agents using that key will receive `401 Unauthorized` on their next request.
+
+<Warning>
+  Revoking a key stops all agents using it immediately. Generate a new key and update agents before revoking the old one.
+</Warning>
+
+## Team
+
+Open `/dashboard/settings/team` to manage dashboard users.
+
+### Invite a user
+
+1. Click **Invite user**
+2. Enter email address and select role (**Admin** or **Viewer**)
+3. The invitee receives a link to set their password
+4. They log in at `/login` with the assigned role
+
+| Role | Permissions |
+| --- | --- |
+| **Admin** | Full access — keys, team, DLQ retry/discard, topic creation, pipeline rerun |
+| **Viewer** | Read-only — can view all pages but cannot modify |
+
+<Note>
+  The first user to sign up at `/signup` becomes admin automatically. Use Team to invite additional users.
+</Note>
+
+## TTL and data retention
+
+Nexus applies time-to-live (TTL) to stored data:
+
+| Data type | Default TTL | Storage |
+| --- | --- | --- |
+| **Messages** | 7 days | Redis `messages:*` keys |
+| **Context** | 7 days | Redis `context:{correlation_id}:*` keys |
+| **DLQ entries** | Until retry/discard | Redis `dlq:*` keys |
+| **Kafka topics** | 7 days (custom topics) | Configurable at topic creation |
+
+### Export messages
+
+From Settings, click **Download messages** to export up to 1,000 recent messages as JSON. Useful for backups or offline analysis.
+
+### Flush expired data
+
+Admins can flush expired Redis keys from the Settings page. This removes messages and context past their TTL without affecting Kafka retention.
+
+<Info>
+  Kafka retains messages according to topic `retention_days` (set at creation). Redis TTL controls what the dashboard displays — not what Kafka stores.
+</Info>
+
+## Production settings checklist
+
+Before going live, update these in your environment:
+
+| Variable | Local default | Production |
+| --- | --- | --- |
+| `JWT_SECRET_KEY` | `changeme` | Long random string (64+ chars) |
+| `FRONTEND_URL` | `http://localhost:3000` | Your domain with HTTPS |
+| `KAFKA_BOOTSTRAP_SERVERS` | `localhost:9092` | Internal broker address |
+| `REDIS_URL` | `redis://localhost:6379` | Internal Redis with auth |
+
+See [Production deployment](/deployment/production) for the full security checklist.
+
+## Next steps
+
+- [Dashboard Overview](/dashboard/overview) — tour all 14 pages
+- [Local deployment](/deployment/local) — first-time setup and admin account
+- [Production deployment](/deployment/production) — env vars, nginx, security
+- [Build your first pipeline](/guides/build-a-pipeline) — generate an API key in Step 2

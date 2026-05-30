@@ -1,0 +1,262 @@
+---
+title: Team
+description: Manage team members, roles, and invitations for the Nexus dashboard.
+---
+
+# Team
+
+Base URL: `http://localhost:8000/api/v1/team`
+
+Team management is admin-only. Admins can list members, invite new users, change roles, and remove members.
+
+<Note>
+Invitations expire after 48 hours. Invited users sign up via `POST /auth/signup?token=<invitation_token>`, which assigns the invited role (`admin` or `viewer`).
+</Note>
+
+## GET `/team`
+
+List all team members.
+
+**Auth required:** Admin JWT
+
+### Response
+
+`200 OK`
+
+```json
+[
+  {
+    "id": "user_a1b2c3d4e5f6",
+    "name": "Admin User",
+    "email": "admin@example.com",
+    "role": "admin",
+    "status": "active",
+    "created_at": "2026-05-30T12:00:00.000Z",
+    "last_login": "2026-05-30T14:30:00.000Z"
+  },
+  {
+    "id": "user_b2c3d4e5f6a7",
+    "name": "Viewer User",
+    "email": "viewer@example.com",
+    "role": "viewer",
+    "status": "active",
+    "created_at": "2026-05-29T10:00:00.000Z",
+    "last_login": null
+  }
+]
+```
+
+### cURL
+
+```bash
+curl http://localhost:8000/api/v1/team \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+```
+
+### Error codes
+
+| Status | Detail | Cause |
+| --- | --- | --- |
+| `401` | Missing or invalid JWT | Not authenticated |
+| `403` | `Admin role required` | Non-admin user |
+
+---
+
+## POST `/team/invite`
+
+Invite a new user by email.
+
+**Auth required:** Admin JWT
+
+### Request
+
+```json
+{
+  "email": "viewer@example.com",
+  "role": "viewer"
+}
+```
+
+`role` must be `"admin"` or `"viewer"`.
+
+### Response
+
+`200 OK`
+
+```json
+{
+  "message": "Invitation created",
+  "email": "viewer@example.com",
+  "role": "viewer",
+  "invite_link": "http://localhost:3000/signup?token=inv_abc123...",
+  "token": "inv_abc123...",
+  "expires_in": "48 hours"
+}
+```
+
+The invite link uses `FRONTEND_URL` (default `http://localhost:3000`).
+
+### cURL
+
+```bash
+curl -X POST http://localhost:8000/api/v1/team/invite \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." \
+  -H "Content-Type: application/json" \
+  -d '{"email":"viewer@example.com","role":"viewer"}'
+```
+
+### Error codes
+
+| Status | Detail | Cause |
+| --- | --- | --- |
+| `401` | Missing or invalid JWT | Not authenticated |
+| `403` | `Admin role required` | Non-admin user |
+| `409` | `User already exists` | Email already registered |
+| `422` | Validation error | Invalid email or role |
+
+---
+
+## PATCH `/team/{user_id}/role`
+
+Change a team member's role.
+
+**Auth required:** Admin JWT
+
+### Request
+
+```json
+{
+  "role": "admin"
+}
+```
+
+### Response
+
+`200 OK`
+
+```json
+{
+  "id": "user_b2c3d4e5f6a7",
+  "name": "Viewer User",
+  "email": "viewer@example.com",
+  "role": "admin",
+  "status": "active",
+  "created_at": "2026-05-29T10:00:00.000Z",
+  "last_login": null
+}
+```
+
+### cURL
+
+```bash
+curl -X PATCH http://localhost:8000/api/v1/team/user_b2c3d4e5f6a7/role \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." \
+  -H "Content-Type: application/json" \
+  -d '{"role":"admin"}'
+```
+
+### Error codes
+
+| Status | Detail | Cause |
+| --- | --- | --- |
+| `401` | Missing or invalid JWT | Not authenticated |
+| `403` | `Admin role required` | Non-admin user |
+| `403` | `You cannot change your own role` | Self-modification blocked |
+| `404` | `User not found` | Invalid user ID |
+| `422` | Validation error | Invalid role value |
+
+---
+
+## DELETE `/team/{user_id}`
+
+Remove a team member from Nexus.
+
+**Auth required:** Admin JWT
+
+<Warning>
+Removing a member deletes their account. They will need a new invitation to rejoin.
+</Warning>
+
+### Request
+
+No body.
+
+### Response
+
+`200 OK`
+
+```json
+{
+  "message": "Member removed"
+}
+```
+
+### cURL
+
+```bash
+curl -X DELETE http://localhost:8000/api/v1/team/user_b2c3d4e5f6a7 \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+```
+
+### Error codes
+
+| Status | Detail | Cause |
+| --- | --- | --- |
+| `401` | Missing or invalid JWT | Not authenticated |
+| `403` | `Admin role required` | Non-admin user |
+| `403` | `You cannot remove yourself` | Self-removal blocked |
+| `404` | `User not found` | Invalid user ID |
+
+---
+
+## POST `/team/resend-invite`
+
+Resend an invitation to a pending user. Any existing invitation for the email is invalidated and replaced.
+
+**Auth required:** Admin JWT
+
+### Request
+
+```json
+{
+  "email": "viewer@example.com"
+}
+```
+
+### Response
+
+`200 OK`
+
+```json
+{
+  "message": "Invitation resent"
+}
+```
+
+<Note>
+Resend always creates a new invitation with the `viewer` role, regardless of the original invitation role.
+</Note>
+
+### cURL
+
+```bash
+curl -X POST http://localhost:8000/api/v1/team/resend-invite \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." \
+  -H "Content-Type: application/json" \
+  -d '{"email":"viewer@example.com"}'
+```
+
+### Error codes
+
+| Status | Detail | Cause |
+| --- | --- | --- |
+| `401` | Missing or invalid JWT | Not authenticated |
+| `403` | `Admin role required` | Non-admin user |
+| `409` | `User already exists` | Email already registered |
+| `422` | Validation error | Missing email field |
+
+## Next steps
+
+- **[Authentication](/api/auth)** — How invited users complete signup
+- **[API Keys](/api/keys)** — Create keys for non-human clients
+- **[Overview](/api/overview)** — Role-based access across all endpoints

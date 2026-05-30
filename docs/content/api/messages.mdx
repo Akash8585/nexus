@@ -1,0 +1,180 @@
+---
+title: Messages
+description: Publish and retrieve messages on the Nexus Kafka bus.
+---
+
+# Messages
+
+Base URL: `http://localhost:8000/api/v1/messages`
+
+Messages are the primary unit of communication between agents. Publishing writes to Kafka, caches in Redis (7-day TTL), and updates the pipeline tracker.
+
+<Note>
+Publishing requires the target topic to exist and the `sender_agent` to be registered. Use `POST /topics` (admin) or rely on default topics created at startup.
+</Note>
+
+## POST `/messages/publish`
+
+Publish a message to a Kafka topic.
+
+**Auth required:** Bearer API key **or** JWT
+
+### Request
+
+```json
+{
+  "correlation_id": "run_abc123",
+  "topic": "nexus.research",
+  "sender_agent": "scout-agent",
+  "payload": {
+    "status": "research_done",
+    "story_count": 10
+  }
+}
+```
+
+### Response
+
+`200 OK`
+
+```json
+{
+  "id": "msg_f1e2d3c4b5a6",
+  "correlation_id": "run_abc123",
+  "topic": "nexus.research",
+  "sender_agent": "scout-agent",
+  "payload": {
+    "status": "research_done",
+    "story_count": 10
+  },
+  "timestamp": "2026-05-30T12:00:00.000Z",
+  "retry_count": 0
+}
+```
+
+Side effects:
+
+- Message published to Kafka
+- Stored in Redis at `messages:{id}` (7-day TTL)
+- Pipeline tracker updated if a run exists for `correlation_id`
+- `message.published` WebSocket event broadcast
+- Auto-completes pipeline when publishing to `nexus.delivery` with `payload.status == "delivery_complete"`
+
+### cURL
+
+```bash
+curl -X POST http://localhost:8000/api/v1/messages/publish \
+  -H "Authorization: Bearer nxs_live_sk_abc123..." \
+  -H "Content-Type: application/json" \
+  -d '{
+    "correlation_id": "run_abc123",
+    "topic": "nexus.research",
+    "sender_agent": "scout-agent",
+    "payload": {"status": "research_done", "story_count": 10}
+  }'
+```
+
+### Error codes
+
+| Status | Detail | Cause |
+| --- | --- | --- |
+| `400` | `Topic 'nexus.unknown' does not exist` | Topic not created |
+| `401` | Missing or invalid credentials | No valid JWT or API key |
+| `404` | `Agent 'scout-agent' not found` | Sender not registered |
+| `422` | Validation error | Missing required fields |
+
+---
+
+## GET `/messages`
+
+List recent messages, newest first.
+
+**Auth required:** Bearer API key **or** JWT
+
+### Query parameters
+
+| Parameter | Type | Default | Description |
+| --- | --- | --- | --- |
+| `topic` | string | — | Filter by topic name |
+| `agent` | string | — | Filter by sender agent |
+| `limit` | integer | `50` | Maximum results (minimum `1`) |
+
+### Response
+
+`200 OK`
+
+```json
+[
+  {
+    "id": "msg_f1e2d3c4b5a6",
+    "correlation_id": "run_abc123",
+    "topic": "nexus.research",
+    "sender_agent": "scout-agent",
+    "payload": { "status": "research_done" },
+    "timestamp": "2026-05-30T12:00:00.000Z",
+    "retry_count": 0
+  }
+]
+```
+
+### cURL
+
+```bash
+curl "http://localhost:8000/api/v1/messages?topic=nexus.research&limit=20" \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+```
+
+### Error codes
+
+| Status | Detail | Cause |
+| --- | --- | --- |
+| `401` | Missing or invalid credentials | Not authenticated |
+| `422` | Validation error | Invalid `limit` (must be ≥ 1) |
+
+---
+
+## GET `/messages/{message_id}`
+
+Retrieve a single message by ID.
+
+**Auth required:** Bearer API key **or** JWT
+
+### Response
+
+`200 OK`
+
+```json
+{
+  "id": "msg_f1e2d3c4b5a6",
+  "correlation_id": "run_abc123",
+  "topic": "nexus.research",
+  "sender_agent": "scout-agent",
+  "payload": { "status": "research_done" },
+  "timestamp": "2026-05-30T12:00:00.000Z",
+  "retry_count": 0
+}
+```
+
+### cURL
+
+```bash
+curl http://localhost:8000/api/v1/messages/msg_f1e2d3c4b5a6 \
+  -H "Authorization: Bearer nxs_live_sk_abc123..."
+```
+
+### Error codes
+
+| Status | Detail | Cause |
+| --- | --- | --- |
+| `401` | Missing or invalid credentials | Not authenticated |
+| `404` | `Message 'msg_xyz' not found` | Message expired or never existed |
+
+<Warning>
+Messages expire from Redis after 7 days. Older messages may still exist in Kafka but will return `404` from this endpoint.
+</Warning>
+
+## Next steps
+
+- **[Topics](/api/topics)** — Create and manage Kafka topics
+- **[Pipelines](/api/pipelines)** — Track message flow across a correlation ID
+- **[Dead Letter](/api/deadletter)** — Inspect and retry failed messages

@@ -1,0 +1,113 @@
+---
+title: Pipelines
+description: Pipeline history, step-by-step replay, and rerun failed or completed runs.
+---
+
+The **Pipelines** section tracks every pipeline run from start to finish. Use it to audit history, debug failures, and rerun workflows without re-triggering from scratch.
+
+<Screenshot caption="Pipeline History table showing correlation IDs, status badges, duration, and trigger input" />
+
+## Pipeline History
+
+Open **Pipeline History** at `/dashboard/pipelines`. The table shows:
+
+| Column | Description |
+| --- | --- |
+| **Correlation ID** | Unique run identifier — click to open detail |
+| **Status** | `running`, `completed`, or `failed` |
+| **Trigger input** | Original input that started the run |
+| **Started / Ended** | Timestamps and total duration |
+| **Messages** | Count of messages recorded for this run |
+
+Filter by status using the tabs: **All**, **Running**, **Completed**, **Failed**.
+
+<Info>
+  A pipeline starts when you call `POST /api/v1/pipelines/start`. It completes automatically when a delivery message arrives on `nexus.delivery`, or manually via the complete endpoint.
+</Info>
+
+## Pipeline Detail
+
+Click any row to open `/dashboard/pipelines/[correlationId]`. The detail page shows:
+
+1. **Run summary** — status, duration, trigger input
+2. **Message timeline** — every message in chronological order
+3. **Context snapshot** — shared Redis keys for this correlation ID
+4. **Replay controls** — step through messages one at a time
+
+### Replay
+
+Replay lets you walk through a run message by message without re-executing agents:
+
+1. Open a completed or failed run
+2. Click **Play** to start replay
+3. Use **Step forward** to advance one message at a time
+4. Each step highlights the sender, topic, and payload
+
+<Tip>
+  Replay is ideal for post-mortems and demos. It shows exactly what happened without burning LLM API credits.
+</Tip>
+
+<Screenshot caption="Pipeline Detail replay view stepping through Scout → Analyst → Writer → Deliverer messages" />
+
+### Rerun
+
+**Rerun** creates a new pipeline run using the same trigger input as the original. Requires **admin** role.
+
+1. Open any completed or failed run
+2. Click **Rerun**
+3. A new correlation ID is generated (e.g. `support_1717000000_rerun_1`)
+4. Agents process the new run normally
+
+<Warning>
+  Rerun triggers real agent execution — LLM calls, API lookups, and emails will fire again. Use replay for read-only investigation.
+</Warning>
+
+```bash
+# API equivalent (admin JWT required)
+curl -s -X POST "$NEXUS_URL/api/v1/pipelines/{correlation_id}/rerun" \
+  -H "Authorization: Bearer $ADMIN_JWT"
+```
+
+## Start a pipeline via API
+
+```bash
+curl -s -X POST "$NEXUS_URL/api/v1/pipelines/start" \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "correlation_id": "run_20260530_001",
+    "trigger_input": "Morning briefing on AI news"
+  }'
+```
+
+Then publish the first message to kick off agent processing. See [Build a pipeline](/guides/build-a-pipeline) for a full example.
+
+## Debug a failed run
+
+When a run shows **failed**:
+
+1. Open Pipeline Detail
+2. Find the last successful message — the next stage likely failed
+3. Check **Dead Letter Queue** for messages from that stage
+4. Fix the agent, restart it, and **Rerun** the pipeline
+
+See [Handling failures](/guides/error-handling) for the three common failure scenarios.
+
+## WebSocket events
+
+Pipeline status changes broadcast live:
+
+| Event | When |
+| --- | --- |
+| `pipeline.started` | Run created via `/pipelines/start` |
+| `pipeline.completed` | Delivery confirmed or manual complete |
+| `pipeline.failed` | Explicit failure or unrecoverable error |
+
+The Pipeline History table updates without refresh when these events arrive.
+
+## Next steps
+
+- [Messages](/dashboard/messages) — raw message feed for all runs
+- [Dead Letter Queue](/dashboard/deadletter) — recover failed messages
+- [Build your first pipeline](/guides/build-a-pipeline) — Step 6 triggers your first run
+- [Handling failures](/guides/error-handling) — Scenario 2 covers DLQ recovery

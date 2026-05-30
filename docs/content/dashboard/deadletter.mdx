@@ -1,0 +1,116 @@
+---
+title: Dead Letter Queue
+description: Failed messages after retries — inspect, retry, or discard from the dashboard.
+---
+
+The **Dead Letter Queue (DLQ)** stores messages that failed processing after exhausting retries. It prevents one bad message from blocking an entire topic or pipeline.
+
+<Screenshot caption="Dead Letter Queue table with original topic, error message, retry count, and action buttons" />
+
+## What it shows
+
+Each DLQ entry contains:
+
+| Field | Description |
+| --- | --- |
+| **Message ID** | Original message identifier |
+| **Original topic** | Topic the message came from |
+| **Sender agent** | Agent that published the message |
+| **Error** | Last error description from the failing handler |
+| **Retry count** | Number of retry attempts before DLQ |
+| **Failed at** | Timestamp when the message was moved to DLQ |
+| **Payload** | Full original message body |
+
+Entries are stored in Redis (`dlq:*` keys) and mirrored to the `nexus.deadletter` Kafka topic.
+
+<Info>
+  When a message enters the DLQ, Nexus increments the **sender agent's error count**. Check the [Agents](/dashboard/agents) page to see which agent is failing most often.
+</Info>
+
+## Retry
+
+**Retry** re-publishes the message to its **original topic** so agents can process it again.
+
+**When to retry:**
+
+- Transient failure (network blip, agent was temporarily down)
+- Bug was fixed and the message should succeed now
+- Missing context key that has since been written
+
+**Steps:**
+
+1. Open `/dashboard/deadletter`
+2. Click the failed entry to read the error and payload
+3. Fix the root cause (agent code, missing data, API key)
+4. Click **Retry**
+5. Confirm processing on the [Messages](/dashboard/messages) feed
+
+<Tip>
+  After retrying, watch the Messages feed filtered by the original topic to confirm the agent picks it up.
+</Tip>
+
+```bash
+# API equivalent (admin required)
+curl -s -X POST "$NEXUS_URL/api/v1/deadletter/{message_id}/retry" \
+  -H "Authorization: Bearer $ADMIN_JWT"
+```
+
+## Discard
+
+**Discard** permanently removes a DLQ entry. It cannot be undone.
+
+**When to discard:**
+
+- Poison message with malformed payload that will never succeed
+- Test or debug data accidentally published to production
+- Duplicate message already processed successfully
+
+<Warning>
+  Discarding is irreversible. Only discard when you are certain the message should never be retried.
+</Warning>
+
+```bash
+# API equivalent (admin required)
+curl -s -X DELETE "$NEXUS_URL/api/v1/deadletter/{message_id}" \
+  -H "Authorization: Bearer $ADMIN_JWT"
+```
+
+## Retry vs discard decision tree
+
+```
+Message in DLQ
+    │
+    ├─ Transient error? ──────────▶ Retry
+    │
+    ├─ Bug in agent code? ────────▶ Fix code → Retry
+    │
+    ├─ Invalid / test payload? ───▶ Discard
+    │
+    └─ Already processed elsewhere? ▶ Discard
+```
+
+## Role requirements
+
+| Action | Admin | Viewer |
+| --- | --- | --- |
+| View DLQ entries | ✓ | ✓ |
+| Retry message | ✓ | ✗ |
+| Discard message | ✓ | ✗ |
+
+## Common failure patterns
+
+| Error | Likely cause | Fix |
+| --- | --- | --- |
+| `Missing policy context` | Upstream agent did not write context | Fix upstream agent, retry |
+| `JSON decode error` | Malformed payload published | Discard or fix publisher |
+| `Connection timeout` | External API (LLM, CRM) unreachable | Retry after service recovers |
+| `KeyError: order_id` | Classification missed order extraction | Fix classifier, retry |
+
+See [Handling failures](/guides/error-handling) for the three main failure scenarios.
+
+## Next steps
+
+- [Handling failures](/guides/error-handling) — Scenario 2 covers DLQ recovery in depth
+- [Agents](/dashboard/agents) — find which agent has the highest error count
+- [Pipelines](/dashboard/pipelines) — trace a failed run back to the DLQ entry
+- [Build your first pipeline](/guides/build-a-pipeline) — Step 8 debugs failed runs

@@ -1,0 +1,231 @@
+---
+title: Context
+description: Read and write shared pipeline context stored in Redis.
+---
+
+# Context
+
+Base URL: `http://localhost:8000/api/v1/context`
+
+The context store holds key-value data scoped to a pipeline's `correlation_id`. Agents write context during execution; the dashboard reads it for inspection.
+
+<Note>
+Context keys are stored at `context/{correlation_id}/{key}` in Redis with a configurable TTL (default 24 hours). Reading context accepts JWT or API key; writing requires an API key.
+</Note>
+
+## GET `/context/{correlation_id}`
+
+Get all context keys and values for a pipeline run.
+
+**Auth required:** Bearer API key **or** JWT
+
+### Response
+
+`200 OK`
+
+```json
+{
+  "research_results": {
+    "stories": [
+      { "title": "AI breakthrough", "url": "https://example.com/1" }
+    ]
+  },
+  "analysis_summary": "Three key themes identified."
+}
+```
+
+Returns an empty object `{}` if no context exists for the correlation ID.
+
+### cURL
+
+```bash
+curl http://localhost:8000/api/v1/context/run_abc123 \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+```
+
+### Error codes
+
+| Status | Detail | Cause |
+| --- | --- | --- |
+| `401` | Missing or invalid credentials | Not authenticated |
+| `500` | Redis read failure | Context store unavailable |
+
+---
+
+## GET `/context/{correlation_id}/{key}`
+
+Get a single context value by key name.
+
+**Auth required:** Bearer API key **or** JWT
+
+### Response
+
+`200 OK`
+
+Returns the stored JSON value directly (not wrapped in an object):
+
+```json
+{
+  "stories": [
+    { "title": "AI breakthrough", "url": "https://example.com/1" }
+  ]
+}
+```
+
+Returns JSON `null` if the key does not exist.
+
+### cURL
+
+```bash
+curl http://localhost:8000/api/v1/context/run_abc123/research_results \
+  -H "Authorization: Bearer nxs_live_sk_abc123..."
+```
+
+### Error codes
+
+| Status | Detail | Cause |
+| --- | --- | --- |
+| `401` | Missing or invalid credentials | Not authenticated |
+| `500` | Redis read failure | Context store unavailable |
+
+---
+
+## PUT `/context/{correlation_id}/{key}`
+
+Write or overwrite a context value.
+
+**Auth required:** Bearer API key
+
+### Request
+
+```json
+{
+  "value": {
+    "stories": [
+      { "title": "AI breakthrough", "url": "https://example.com/1" }
+    ]
+  },
+  "ttl_hours": 24
+}
+```
+
+| Field | Type | Default | Description |
+| --- | --- | --- | --- |
+| `value` | any | required | JSON-serializable value |
+| `ttl_hours` | integer | `24` | Time-to-live in hours |
+
+### Response
+
+`200 OK`
+
+```json
+{
+  "status": "ok",
+  "key": "research_results"
+}
+```
+
+### cURL
+
+```bash
+curl -X PUT http://localhost:8000/api/v1/context/run_abc123/research_results \
+  -H "Authorization: Bearer nxs_live_sk_abc123..." \
+  -H "Content-Type: application/json" \
+  -d '{"value":{"stories":[]},"ttl_hours":48}'
+```
+
+### Error codes
+
+| Status | Detail | Cause |
+| --- | --- | --- |
+| `401` | `Authorization token is not an API key` | JWT used instead of API key |
+| `401` | Invalid or missing API key | Not authenticated |
+| `422` | Validation error | Missing `value` field |
+| `500` | Redis write failure | Value not JSON-serializable or store down |
+
+---
+
+## DELETE `/context/{correlation_id}`
+
+Delete all context keys for a pipeline run.
+
+**Auth required:** Admin JWT
+
+### Request
+
+No body.
+
+### Response
+
+`200 OK`
+
+```json
+{
+  "message": "Context run_abc123 deleted"
+}
+```
+
+### cURL
+
+```bash
+curl -X DELETE http://localhost:8000/api/v1/context/run_abc123 \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+```
+
+### Error codes
+
+| Status | Detail | Cause |
+| --- | --- | --- |
+| `401` | Missing or invalid JWT | Not authenticated |
+| `403` | `Admin role required` | Non-admin user |
+| `500` | Redis delete failure | Context store unavailable |
+
+---
+
+## DELETE `/context/flush-all`
+
+Delete **all** context data across every correlation ID.
+
+**Auth required:** Admin JWT
+
+<Warning>
+This is a destructive operation intended for development resets. All pipeline context is permanently removed.
+</Warning>
+
+### Request
+
+No body.
+
+### Response
+
+`200 OK`
+
+```json
+{
+  "message": "All context data flushed",
+  "deleted": 42
+}
+```
+
+`deleted` is the number of Redis keys removed.
+
+### cURL
+
+```bash
+curl -X DELETE http://localhost:8000/api/v1/context/flush-all \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+```
+
+### Error codes
+
+| Status | Detail | Cause |
+| --- | --- | --- |
+| `401` | Missing or invalid JWT | Not authenticated |
+| `403` | `Admin role required` | Non-admin user |
+| `500` | Redis flush failure | Context store unavailable |
+
+## Next steps
+
+- **[Pipelines](/api/pipelines)** — Track runs that share a correlation ID
+- **[Messages](/api/messages)** — Publish messages linked to the same correlation ID
+- **[Agents](/api/agents)** — Agents that read and write context during execution

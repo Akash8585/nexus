@@ -1,0 +1,153 @@
+---
+title: Local deployment
+description: Run Nexus locally with Docker Compose — services, ports, admin setup, and first agent.
+---
+
+Run the full Nexus stack on your machine in minutes. Docker Compose starts Kafka, Redis, Zookeeper, and the Nexus Bus API. The dashboard runs separately with Next.js.
+
+## Prerequisites
+
+- [Docker Desktop](https://docs.docker.com/get-docker/) with Docker Compose
+- Python 3.9+ or Node.js 18+ (for SDK and dashboard)
+- Git
+
+## Start the stack
+
+```bash
+git clone https://github.com/Akash8585/nexus.git
+cd nexus
+docker compose up -d
+```
+
+Wait for all services to become healthy:
+
+```bash
+docker compose ps
+```
+
+You should see `nexus-bus`, `nexus-kafka`, `nexus-redis`, and `nexus-zookeeper` with status **healthy**.
+
+<Tip>
+  First startup takes 30–60 seconds while Kafka initializes. If `nexus-bus` shows unhealthy, wait and run `docker compose ps` again.
+</Tip>
+
+## Ports
+
+| Port | Service | URL | Notes |
+| --- | --- | --- | --- |
+| **8000** | Nexus Bus API | `http://localhost:8000` | REST + WebSocket |
+| **3000** | Dashboard | `http://localhost:3000` | Start separately (see below) |
+| **8080** | Kafka UI | `http://localhost:8080` | Development only — inspect topics |
+| **9092** | Kafka broker | `localhost:9092` | Agent SDK connects indirectly via API |
+| **6379** | Redis | `localhost:6379` | Context store |
+
+<Note>
+  Kafka UI (8080) is for development debugging. Do not expose it publicly in production. See [Production deployment](/deployment/production).
+</Note>
+
+## Start the dashboard
+
+The dashboard is not included in Docker Compose — run it locally:
+
+```bash
+cd dashboard
+npm install
+npm run dev
+```
+
+Open `http://localhost:3000`.
+
+## Create an admin account
+
+1. Navigate to `http://localhost:3000/signup`
+2. Create the first account — the **first user becomes admin** automatically
+3. Log in at `http://localhost:3000/login`
+
+<Info>
+  Only the first signup receives admin privileges. Subsequent users must be invited from **Settings → Team**.
+</Info>
+
+## Generate an API key
+
+1. Go to **Settings → API Keys**
+2. Click **Generate key** and copy the value (`nxs_live_sk_...`)
+3. Store it securely — shown only once
+
+## Install the SDK
+
+```bash
+pip install nexus-bus
+# or
+npm install nexus-bus
+```
+
+For development from the repo:
+
+```bash
+cd sdk/python && pip install -e ".[dev]"
+```
+
+## Connect your first agent
+
+```python
+from nexus_bus import NexusAgent
+
+agent = NexusAgent(
+    name="hello-agent",
+    agent_type="monitor",
+    subscribe_topic="nexus.research",
+    nexus_url="http://localhost:8000",
+    api_key="nxs_live_sk_your_key_here",
+)
+agent.start()
+print("Agent registered — check the dashboard!")
+```
+
+Verify on the dashboard:
+
+- **Agents** — `hello-agent` appears with green status
+- **Topology** — node visible on the graph
+
+## Run the demo pipeline
+
+```bash
+cd demo
+pip install -r requirements.txt
+python run.py "Give me a morning briefing on AI news"
+```
+
+Watch Scout → Analyst → Writer → Deliverer flow on `/dashboard/topology`.
+
+<Warning>
+  The demo requires a Groq API key in `demo/.env`. Without it, agents fall back to static headlines.
+</Warning>
+
+## Verify health
+
+```bash
+curl -s http://localhost:8000/health | jq
+# {"status":"ok","service":"nexus-bus","version":"0.1.0"}
+```
+
+## Stop the stack
+
+```bash
+docker compose down        # stop containers
+docker compose down -v     # stop and remove volumes (clears Redis data)
+```
+
+## Troubleshooting
+
+| Problem | Solution |
+| --- | --- |
+| Port 8000 in use | Stop other services or change the port mapping in `docker-compose.yml` |
+| Kafka unhealthy | Wait 60s; check `docker compose logs kafka` |
+| Agent 401 error | Regenerate API key; check `Authorization: Bearer` header |
+| Dashboard won't connect | Confirm `NEXT_PUBLIC_API_URL` points to `http://localhost:8000/api/v1` |
+
+## Next steps
+
+- [Build your first pipeline](/guides/build-a-pipeline) — customer support agents step by step
+- [Production deployment](/deployment/production) — deploy to a VPS with nginx
+- [Dashboard Overview](/dashboard/overview) — tour all 14 pages
+- [Settings](/dashboard/settings) — API keys, team, and TTL
