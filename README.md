@@ -25,7 +25,7 @@
 ---
 
 <p align="center">
-  <img src="assets/nexus-demo-pipeline.png" alt="Nexus morning briefing pipeline — Scout, Analyst, Writer, and Deliverer coordinated through the Nexus bus" width="900" />
+  <img src="assets/nexus-demo-pipeline.png" alt="Nexus morning briefing pipeline — Scout, Analyst, Writer, and Deliverer publish and consume through Kafka and Redis" width="900" />
 </p>
 
 <p align="center">
