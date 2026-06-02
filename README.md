@@ -25,10 +25,12 @@
 ---
 
 <p align="center">
-  <img src="assets/demo-placeholder.svg" alt="Nexus demo — replace with assets/demo.gif after recording" width="720" />
+  <img src="assets/nexus-demo-pipeline.png" alt="Nexus morning briefing pipeline — Scout, Analyst, Writer, and Deliverer coordinated through the Nexus bus" width="900" />
 </p>
 
-> **Tip:** Record the demo pipeline running on the dashboard and save as `assets/demo.gif`. See [CONTRIBUTING.md](CONTRIBUTING.md#demo-gif-for-readme).
+<p align="center">
+  <em>One command. Four agents. Fully coordinated through Nexus.</em>
+</p>
 
 ## What is Nexus?
 
@@ -82,9 +84,9 @@ agent.start()
      ▼             ▼             ▼              ▼
 ┌──────────────────────────────────────────────────────┐
 │                    Nexus Bus (FastAPI)               │
-│  ┌─────────────┐  ┌──────────────┐  ┌────────────┐ │
-│  │ Kafka topics│  │ Redis context│  │ WebSocket  │ │
-│  └─────────────┘  └──────────────┘  └────────────┘ │
+│  ┌─────────────┐  ┌──────────────┐  ┌────────────┐   │
+│  │ Kafka topics│  │ Redis context│  │ WebSocket  │   │
+│  └─────────────┘  └──────────────┘  └────────────┘   │
 └──────────────────────────┬───────────────────────────┘
                            │
                            ▼
@@ -103,7 +105,7 @@ agent.start()
 
 ## Demo
 
-The included demo runs a four-agent news briefing pipeline:
+The included demo runs a four-agent news briefing pipeline (see diagram above):
 
 ```bash
 cd demo
@@ -137,7 +139,7 @@ nexus/
 ├── sdk/
 │   ├── python/     # nexus-bus PyPI package
 │   └── javascript/ # nexus-bus npm package
-├── docs/           # Mintlify documentation site
+├── docs/           # Nextra documentation site
 └── assets/         # Logo and demo media
 ```
 
