@@ -79,7 +79,7 @@ npx mintlify@latest dev
 | --- | --- | --- |
 | Python SDK | `cd sdk/python && pytest` | No external services required |
 | JavaScript SDK | `cd sdk/javascript && npm test` | No external services required |
-| Backend (integration) | `python bus/tests/test_context.py` | Requires Redis on `localhost:6379` |
+| Backend (integration) | `python bus/tests/test_context.py` | Requires Redis on `localhost:6380` (or set `REDIS_URL`) |
 | Backend (integration) | `python bus/tests/test_kafka.py` | Requires Kafka on `localhost:9092` and default topics |
 | Backend (integration) | `python bus/tests/test_websocket.py` | Requires full stack + admin user |
 | Dashboard | `cd dashboard && npm run build` | Type-check and production build |
