@@ -10,7 +10,10 @@ import {
 import Link from "next/link";
 import type { ReactNode } from "react";
 
-const DOCS_URL = "http://localhost:3001/introduction";
+import { PipelineAnimation } from "@/components/PipelineAnimation";
+
+const DOCS_URL =
+  process.env.NEXT_PUBLIC_DOCS_URL ?? "https://github.com/Akash8585/nexus-docs";
 
 const navLinks = [
   { href: "#features", label: "Features" },
@@ -216,9 +219,8 @@ export default function LandingPage() {
               View on GitHub
             </SecondaryLink>
           </div>
-          {/* TODO: Replace with real demo GIF */}
-          <div className="mt-12 flex min-h-72 w-full max-w-4xl items-center justify-center rounded-[8px] border border-[#3d3a39] bg-[#1a1a1a] text-base text-[#8b949e]">
-            Live demo coming soon
+          <div className="mt-12 w-full max-w-4xl">
+            <PipelineAnimation />
           </div>
         </div>
       </section>

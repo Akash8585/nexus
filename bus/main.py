@@ -90,6 +90,17 @@ app.include_router(pipelines_router, prefix="/api/v1/pipelines")
 app.include_router(deadletter_router, prefix="/api/v1/deadletter")
 
 
+@app.get("/")
+def root() -> dict[str, str]:
+    return {
+        "status": "ok",
+        "service": "nexus-bus",
+        "version": "1.0.0",
+        "health": "/health",
+        "api": "/api/v1",
+    }
+
+
 @app.get("/health")
 def health() -> dict[str, str]:
     return {

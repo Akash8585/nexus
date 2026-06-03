@@ -17,7 +17,7 @@
 </p>
 
 <p align="center">
-  <a href="http://localhost:3001">Documentation</a> ·
+  <a href="https://github.com/Akash8585/nexus-docs">Documentation</a> ·
   <a href="#demo">Demo</a> ·
   <a href="CONTRIBUTING.md">Contributing</a>
 </p>
@@ -50,10 +50,54 @@ Nexus is an open-source **multi-agent coordination bus** — the infrastructure 
 
 ## Quick start
 
+### Windows
+
+Double-click **`start.bat`**
+
+OR open terminal and run:
+
+```bat
+.\start.bat
+```
+
+### Mac / Linux
+
+```bash
+chmod +x start.sh
+./start.sh
+```
+
+### All platforms (if Make is installed)
+
+```bash
+make start
+```
+
+**To stop**
+
+| Platform | Command |
+| --- | --- |
+| Windows | `.\stop.bat` |
+| Mac / Linux | `./stop.sh` |
+| Make | `make stop` |
+
+**To run the demo pipeline**
+
+| Platform | Command |
+| --- | --- |
+| Windows | `.\start-demo.bat` |
+| Mac / Linux | `cd demo && python run.py "Give me a morning briefing on AI news"` |
+| Make | `make demo` |
+
+`start.bat` / `start.sh` start Docker (Kafka, Redis, API), open the dashboard in your browser, and run the Next.js dev server on port 3000.
+
+---
+
+### SDK quick install
+
 ```bash
 git clone https://github.com/Akash8585/nexus.git
 cd nexus
-docker compose up -d
 pip install nexus-bus
 ```
 
@@ -72,7 +116,7 @@ agent.start()
 
 1. Open `http://localhost:3000/signup` — first user becomes admin
 2. Generate an API key under **Settings → API Keys**
-3. Run the demo: `cd demo && python run.py "Morning briefing on AI news"`
+3. Run the demo (see table above)
 
 ## Architecture
 
@@ -117,17 +161,13 @@ Watch agents register, messages flow through topics, and the briefing land in `d
 
 ## Documentation
 
-Full docs: **`http://localhost:3001`** — run `cd docs && npm run dev`
+Documentation lives in a separate repository: **[nexus-docs](https://github.com/Akash8585/nexus-docs)**.
 
-| Section | Path |
+| Section | Where |
 | --- | --- |
-| [Quickstart](http://localhost:3001/quickstart) | Docker, admin, API key, first agent |
-| [Concepts](http://localhost:3001/concepts/agents) | Agents, messages, topics, context, pipelines |
+| Quickstart, concepts, guides | [nexus-docs](https://github.com/Akash8585/nexus-docs) |
 | [Python SDK](sdk/python/README.md) | `pip install nexus-bus` |
 | [JavaScript SDK](sdk/javascript/README.md) | `npm install nexus-bus` |
-| [API Reference](http://localhost:3001/api/overview) | REST + WebSocket |
-
-Source: `docs/content/` (Nextra). See [docs/README.md](docs/README.md).
 
 ## Project structure
 
@@ -139,7 +179,6 @@ nexus/
 ├── sdk/
 │   ├── python/     # nexus-bus PyPI package
 │   └── javascript/ # nexus-bus npm package
-├── docs/           # Nextra documentation site
 └── assets/         # Logo and demo media
 ```
 

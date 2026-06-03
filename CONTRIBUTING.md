@@ -10,6 +10,19 @@ Thank you for your interest in contributing to Nexus! This guide covers local se
 - Python 3.9+
 - Node.js 18+
 - Git
+- **GNU Make** (optional; see below)
+
+### Makefile (recommended)
+
+From the repo root, `make` wraps Docker Compose and local dev servers:
+
+```bash
+make start      # docker compose up -d
+make dashboard  # Next.js on :3000
+make health     # curl API /health
+```
+
+**Windows (PowerShell):** Install Make with `winget install GnuWin32.Make`, then **open a new terminal** so `C:\Program Files (x86)\GnuWin32\bin` is on your PATH. Until then, use `.\make.cmd start` from the `nexus` folder, or run commands from **Git Bash**.
 
 ### Clone and start the stack
 
@@ -66,12 +79,9 @@ npm test
 npm run build
 ```
 
-### Documentation site
+### Documentation
 
-```bash
-cd docs
-npx mintlify@latest dev
-```
+Documentation is maintained in the separate **[nexus-docs](https://github.com/Akash8585/nexus-docs)** repository.
 
 ## Running tests
 

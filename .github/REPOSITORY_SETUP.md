@@ -39,7 +39,3 @@ Replace `assets/demo-placeholder.svg` in the README with a recorded GIF:
 2. Run `cd demo && python run.py "Morning briefing on AI news"`
 3. Record the dashboard with [LICEcap](https://www.cockos.com/licecap/) or [Kap](https://getkap.co/)
 4. Save as `assets/demo.gif` and update the README image src
-
-## Mintlify docs deploy
-
-See [docs/DEPLOY.md](../docs/DEPLOY.md) for connecting Mintlify Cloud to this repo.
