@@ -122,7 +122,7 @@ export function TopBar() {
   const initial = user?.name?.trim().charAt(0).toUpperCase() || "N";
 
   return (
-    <header className="fixed right-0 top-0 z-30 flex h-16 items-center justify-between border-b border-[#3d3a39] bg-[#101010] px-6 transition-[left] duration-200 left-[var(--sidebar-width)]">
+    <header className="fixed right-0 top-0 z-30 flex h-16 items-center justify-between border-b border-[#3d3a39] bg-[#101010] px-6 transition-[left] duration-200 left-(--sidebar-width)">
       <h1 className="text-xl font-semibold text-white">{title}</h1>
       <div className="flex items-center gap-4">
         <div className="flex items-center gap-1" aria-label="System status">
@@ -143,3 +143,4 @@ export function TopBar() {
     </header>
   );
 }
+  

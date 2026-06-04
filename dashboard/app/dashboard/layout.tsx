@@ -11,7 +11,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
       <WebSocketProvider>
         <Sidebar />
         <TopBar />
-        <main className="min-h-screen bg-[#101010] pl-[var(--sidebar-width)] pt-16 transition-[padding-left] duration-200">
+        <main className="min-h-screen bg-[#101010] pl-(--sidebar-width) pt-16 transition-[padding-left] duration-200">
           <div className="p-6">{children}</div>
         </main>
       </WebSocketProvider>

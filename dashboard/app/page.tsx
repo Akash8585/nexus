@@ -12,8 +12,7 @@ import type { ReactNode } from "react";
 
 import { PipelineAnimation } from "@/components/PipelineAnimation";
 
-const DOCS_URL =
-  process.env.NEXT_PUBLIC_DOCS_URL ?? "https://github.com/Akash8585/nexus-docs";
+const DOCS_URL = "http://localhost:3001/introduction";
 
 const navLinks = [
   { href: "#features", label: "Features" },
@@ -97,7 +96,7 @@ function PrimaryLink({
   return (
     <Link
       href={href}
-      className="inline-flex min-h-11 items-center justify-center rounded-[6px] bg-[#00d992] px-4 text-base font-semibold text-[#101010] transition hover:bg-[#2fd6a1] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#2fd6a1]"
+      className="inline-flex min-h-11 items-center justify-center rounded-[6px] bg-[#00d992] px-4 text-base font-semibold text-[#101010] transition hover:bg-[#2fd6a1] focus-visible:outline-2 focus-visible:outline-[#2fd6a1]"
     >
       {children}
     </Link>
@@ -118,7 +117,7 @@ function SecondaryLink({
       href={href}
       target={external ? "_blank" : undefined}
       rel={external ? "noreferrer" : undefined}
-      className="inline-flex min-h-11 items-center justify-center rounded-[6px] border border-[#3d3a39] bg-[#101010] px-4 text-base font-semibold text-[#f2f2f2] transition hover:border-[#00d992] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#2fd6a1]"
+      className="inline-flex min-h-11 items-center justify-center rounded-[6px] border border-[#3d3a39] bg-[#101010] px-4 text-base font-semibold text-[#f2f2f2] transition hover:border-[#00d992] focus-visible:outline-2 focus-visible:outline-[#2fd6a1]"
     >
       {children}
     </Link>
